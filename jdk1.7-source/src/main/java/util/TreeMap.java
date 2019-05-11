@@ -259,16 +259,21 @@ public class TreeMap<K, V>
 
     /**
      * Returns the successor of the specified Entry, or null if no such.
+     *
+     * 查找要删除节点的替代节点
      */
     static <K, V> TreeMap.Entry<K, V> successor(Entry<K, V> t) {
         if (t == null)
             return null;
+       // 查找右子树的最左孩子（左子树的最小节点）
         else if (t.right != null) {
             Entry<K, V> p = t.right;
             while (p.left != null)
                 p = p.left;
             return p;
         } else {
+            // 下面这段代码根本走不到，因为 deleteEntry 在调用此方法时传过来的 t 非 null
+            // 查找左子树的最右孩子 -- 这部分表述是有问题的，不是往下找子节点的，而是往上找父节点的
             Entry<K, V> p = t.parent;
             Entry<K, V> ch = t;
             while (p != null && ch == p.right) {
@@ -763,11 +768,14 @@ public class TreeMap<K, V>
      *                              does not permit null keys
      */
     public V remove(Object key) {
+        // 根据key查找到对应的节点对象
         Entry<K, V> p = getEntry(key);
         if (p == null)
             return null;
 
+        // 记录key对应的value，供返回使用
         V oldValue = p.value;
+        // 删除节点
         deleteEntry(p);
         return oldValue;
     }
@@ -1313,47 +1321,70 @@ public class TreeMap<K, V>
      */
     private void deleteEntry(Entry<K, V> p) {
         modCount++;
+        // map容器的元素个数减一
         size--;
 
         // If strictly internal, copy successor's element to p and then make p
         // point to successor.
+        // 如果被删除的节点p的左孩子和右孩子都不为空，则查找其替代节点-----------这里表示要删除的节点有两个孩子（3）
         if (p.left != null && p.right != null) {
-            Entry<K, V> s = successor(p);
+            // 查找p的替代节点
+            Entry<K, V> s = successor(p);   // 该操作得到的肯定是p的右子树的最左节点！
             p.key = s.key;
             p.value = s.value;
+            // 将p指向替代节点，之后的p不再是原先要删除的节点p，而是替代者p
             p = s;
         } // p has 2 children
 
         // Start fixup at replacement node, if it exists.
+        // replacement为替代节点p的继承者，p的左孩子存在则用p的左孩子替代，否则用p的右孩子
         Entry<K, V> replacement = (p.left != null ? p.left : p.right);
 
-        if (replacement != null) {
+        if (replacement != null) {   // 如果上面的if有两个孩子不通过--------------这里表示要删除的节点只有一个孩子
             // Link replacement to parent
+            // 将p的父节点拷贝给替代节点
             replacement.parent = p.parent;
+
+            // 如果替代节点p的父节点为空，也就是p为跟节点，则将replacement设置为根节点
             if (p.parent == null)
                 root = replacement;
+
+            // 如果替代节点p是其父节点的左孩子，则将replacement设置为其父节点的左孩子（子承父位）
             else if (p == p.parent.left)
                 p.parent.left = replacement;
+
+            // 如果替代节点p是其父节点的左孩子，则将replacement设置为其父节点的右孩子 （子承父位）
             else
                 p.parent.right = replacement;
 
             // Null out links so they are OK to use by fixAfterDeletion.
+            // 将替代节点p的left、right、parent的指针都指向空，即解除前后引用关系（相当于将p从树种摘除），使得gc可以回收
             p.left = p.right = p.parent = null;
 
             // Fix replacement
+            // 如果替代节点p的颜色是黑色，则需要调整红黑树以保持其平衡
             if (p.color == BLACK)
                 fixAfterDeletion(replacement);
-        } else if (p.parent == null) { // return if we are the only node.
-            root = null;
-        } else { //  No children. Use self as phantom replacement and unlink.
-            if (p.color == BLACK)
-                fixAfterDeletion(p);
 
+        } else if (p.parent == null) { // return if we are the only node.
+            // 如果要替代节点p没有父节点，代表p为根节点，直接删除即可
+            root = null;
+
+        } else { //  No children. Use self as phantom replacement and unlink.
+
+            // 判断进入这里说明替代节点p没有孩子, p 自身是尾节点--------------这里表示没有孩子则直接删除（1）
+            // 如果p的颜色是黑色，则调整红黑树
+            if (p.color == BLACK)
+                 fixAfterDeletion(p);
+
+            // 下面删除替代节点p
             if (p.parent != null) {
+                // 解除p的父节点对p的引用
                 if (p == p.parent.left)
                     p.parent.left = null;
                 else if (p == p.parent.right)
                     p.parent.right = null;
+                // 解除p对p父节点的引用
                 p.parent = null;
             }
         }
@@ -1363,35 +1394,59 @@ public class TreeMap<K, V>
      * From CLR
      */
     private void fixAfterDeletion(Entry<K, V> x) {
+        // while循环，保证要删除节点x不是根节点，并且是黑色（根节点和红色不需要调整）
         while (x != root && colorOf(x) == BLACK) {
+
+            // 如果要删除节点x是其父亲的左孩子
             if (x == leftOf(parentOf(x))) {
+
+                // 取出要删除节点x的兄弟节点
                 Entry<K, V> sib = rightOf(parentOf(x));
 
+                // 如果删除节点x的兄弟节点是红色---------------------------①
                 if (colorOf(sib) == RED) {
+                    // 将x的兄弟节点颜色设置为黑色
                     setColor(sib, BLACK);
+                    // 将x的父节点颜色设置为红色
                     setColor(parentOf(x), RED);
+                    // 左旋x的父节点
                     rotateLeft(parentOf(x));
+                    // 将sib重新指向旋转后x的兄弟节点 ，进入else的步奏③
                     sib = rightOf(parentOf(x));
                 }
 
+                // 如果x的兄弟节点的两个孩子都是黑色-------------------------③
                 if (colorOf(leftOf(sib)) == BLACK &&
                         colorOf(rightOf(sib)) == BLACK) {
+                    // 将兄弟节点的颜色设置为红色
                     setColor(sib, RED);
+                    // 将x的父节点指向x，如果x的父节点是黑色，需要将x的父节点整天看做一个节点继续调整-------------------------②
                     x = parentOf(x);
                 } else {
+                    // 如果x的兄弟节点右孩子是黑色，左孩子是红色-------------------------④
                     if (colorOf(rightOf(sib)) == BLACK) {
+                        // 将x的兄弟节点的左孩子设置为黑色
                         setColor(leftOf(sib), BLACK);
+                        // 将x的兄弟节点设置为红色
                         setColor(sib, RED);
+                        // 右旋x的兄弟节点
                         rotateRight(sib);
+                        // 将sib重新指向旋转后x的兄弟节点，进入步奏⑤
                         sib = rightOf(parentOf(x));
                     }
+                    // 如果x的兄弟节点右孩子是红色-------------------------⑤
                     setColor(sib, colorOf(parentOf(x)));
+                    // 将x的父节点设置为黑色
                     setColor(parentOf(x), BLACK);
+                    // 将x的兄弟节点的右孩子设置为黑色
                     setColor(rightOf(sib), BLACK);
+                    // 左旋x的父节点
                     rotateLeft(parentOf(x));
+                    // 达到平衡，将x指向root，退出循环
                     x = root;
                 }
             } else { // symmetric
+                // 如果要删除节点x是其父亲的右孩子，和上面情况一样
                 Entry<K, V> sib = leftOf(parentOf(x));
 
                 if (colorOf(sib) == RED) {
