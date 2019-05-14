@@ -373,7 +373,7 @@ public class HashMap<K,V>
         int i = indexFor(hash, table.length);
         for (Entry<K,V> e = table[i]; e != null; e = e.next) {
             Object k;
-            if (e.hash == hash && ((k = e.key) == key || key.equals(k))) {
+            if (e.hash == hash && ((k = e.key) == key || key.equals(k))) {   // 匹配已有的节点，则进行覆盖
                 V oldValue = e.value;
                 e.value = value;
                 e.recordAccess(this);
@@ -382,7 +382,7 @@ public class HashMap<K,V>
         }
 
         modCount++;
-        addEntry(hash, key, value, i);
+        addEntry(hash, key, value, i);  //创造一个新的节点，  LinkedHashMap 重写了该方法
         return null;
     }
 
@@ -561,7 +561,7 @@ public class HashMap<K,V>
                     table[i] = next;
                 else
                     prev.next = next;
-                e.recordRemoval(this);
+                e.recordRemoval(this);  // HashMap 是空实现，LikedHashMap 重写了此方法，修改链表中的指向
                 return e;
             }
             prev = e;
@@ -674,7 +674,7 @@ public class HashMap<K,V>
     static class Entry<K,V> implements Map.Entry<K,V> {
         final K key;
         V value;
-        Entry<K,V> next;
+        Entry<K,V> next;    // 指向数组中链表的下个节点
         final int hash;
 
         /**
