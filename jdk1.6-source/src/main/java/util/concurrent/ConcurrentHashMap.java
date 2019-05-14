@@ -253,6 +253,10 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
 
         /**
          * The number of elements in this segment's region.
+         *
+         * put、remove等操作也会更新count的值，所以当竞争发生的时候，volatile的语义可以保证写操作在读操作之前，
+         * 也就保证了写操作对后续的读操作都是可见的，这样后面get的后续操作就可以拿到完整的元素内容
+         *
          */
         transient volatile int count;
 
@@ -333,12 +337,14 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
 
         V get(Object key, int hash) {
             if (count != 0) { // read-volatile
-                HashEntry<K,V> e = getFirst(hash);
+                HashEntry<K,V> e = getFirst(hash);  // 获取链表的头结点，或是 table 数组的对应的某个位置的某个元素
                 while (e != null) {
                     if (e.hash == hash && key.equals(e.key)) {
                         V v = e.value;
                         if (v != null)
                             return v;
+
+                        //如果找到 key, 但是对应的 value 是空的，则加锁重新读取
                         return readValueUnderLock(e); // recheck
                     }
                     e = e.next;
@@ -417,22 +423,24 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
             lock();
             try {
                 int c = count;
+                // Segment 中扩容判断的临界点   即当 Segment 中的 table 元素个数达到了 thredhold， 就进行 扩容
                 if (c++ > threshold) // ensure capacity
                     rehash();
                 HashEntry<K,V>[] tab = table;
                 int index = hash & (tab.length - 1);
                 HashEntry<K,V> first = tab[index];
-                HashEntry<K,V> e = first;
+                HashEntry<K,V> e = first;  // 获取表头信息
+
                 while (e != null && (e.hash != hash || !key.equals(e.key)))
-                    e = e.next;
+                    e = e.next;  //遍历单链表，，找到key相同的为止，如果没找到，e指向链表尾
 
                 V oldValue;
-                if (e != null) {
+                if (e != null) {      //如果有相同的key，那么直接替换
                     oldValue = e.value;
                     if (!onlyIfAbsent)
                         e.value = value;
                 }
-                else {
+                else {    //否则在链表表头插入新的结点
                     oldValue = null;
                     ++modCount;
                     tab[index] = new HashEntry<K,V>(key, hash, first, value);
@@ -447,7 +455,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
         void rehash() {
             HashEntry<K,V>[] oldTable = table;
             int oldCapacity = oldTable.length;
-            if (oldCapacity >= MAXIMUM_CAPACITY)
+            if (oldCapacity >= MAXIMUM_CAPACITY) // 已经达到了扩容的最大数，则直接返回，不做扩容
                 return;
 
             /*
@@ -464,9 +472,11 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
              * right now.
              */
 
+            // 2 倍扩容
             HashEntry<K,V>[] newTable = HashEntry.newArray(oldCapacity<<1);
             threshold = (int)(newTable.length * loadFactor);
             int sizeMask = newTable.length - 1;
+
             for (int i = 0; i < oldCapacity ; i++) {
                 // We need to guarantee that any existing reads of old Map can
                 //  proceed. So we cannot yet null out each bin.
@@ -474,28 +484,38 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
 
                 if (e != null) {
                     HashEntry<K,V> next = e.next;
-                    int idx = e.hash & sizeMask;
+
+                    int idx = e.hash & sizeMask;    // 算出 e 节点在新表的索引位置
 
                     //  Single node on list
-                    if (next == null)
+                    if (next == null)   // 链表上只有单节点
                         newTable[idx] = e;
 
                     else {
                         // Reuse trailing consecutive sequence at same slot
+                        // 重用链表上的已有节点
                         HashEntry<K,V> lastRun = e;
                         int lastIdx = idx;
-                        for (HashEntry<K,V> last = next;
-                             last != null;
-                             last = last.next) {
+
+                        //拿当前节点和上一个节点进行 hash 对比，一直找到最后，两个相邻节点 hash 是一样的位置
+                        for (HashEntry<K,V> last = next; last != null; last = last.next) {
                             int k = last.hash & sizeMask;
-                            if (k != lastIdx) {
+                            if (k != lastIdx) {   // 遍历找到最后一个不在原桶序号处的元素（同个链表的上的元素，hash 是相同的）
                                 lastIdx = k;
                                 lastRun = last;
                             }
                         }
+
+                        // 把最后一个不在原桶序号处的元素赋值到新桶
+                        // 由于链表本身的特性，那么该元素后面的元素也都能连接过来
+                        // 并且能保证后面的这些元素在新桶中的序号都是和该元素是相等的
+                        // 因为上面的遍历就是确保了该元素后面的元素的序号都是和这个元素
+                        // 的序号是相等的。不然遍历中还会重新赋值lastIdx
                         newTable[lastIdx] = lastRun;
 
                         // Clone all remaining nodes
+                        // 这个就是把上面找到的最后一个不在原桶序号处的元素之前的元素赋值到
+                        // 新桶上，注意都是把元素添加到新桶的表头处（头插法）
                         for (HashEntry<K,V> p = e; p != lastRun; p = p.next) {
                             int k = p.hash & sizeMask;
                             HashEntry<K,V> n = newTable[k];
@@ -515,10 +535,12 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
             lock();
             try {
                 int c = count - 1;
-                HashEntry<K,V>[] tab = table;
+                HashEntry<K,V>[] tab = table;   // 类似 put 操作，先复制一个范本（局部变量），进行遍历查找存在 key 的节点信息
                 int index = hash & (tab.length - 1);
-                HashEntry<K,V> first = tab[index];
+                HashEntry<K,V> first = tab[index];     // 找到删除节点的数组位置，或是链表的头结点
                 HashEntry<K,V> e = first;
+
+                //遍历找到要删除的节点
                 while (e != null && (e.hash != hash || !key.equals(e.key)))
                     e = e.next;
 
@@ -531,11 +553,20 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
                         // in list, but all preceding ones need to be
                         // cloned.
                         ++modCount;
-                        HashEntry<K,V> newFirst = e.next;
+
+                        /**
+                         * demo:
+                         *    1->2->3->4
+                         * 删除3：
+                         *    2->1->4
+                         */
+
+                        HashEntry<K,V> newFirst = e.next;  //newFirst 此时为要删除结点的 next 节点
                         for (HashEntry<K,V> p = first; p != e; p = p.next)
-                            newFirst = new HashEntry<K,V>(p.key, p.hash,
-                                                          newFirst, p.value);
-                        tab[index] = newFirst;
+                            //从头遍历链表将要删除结点的前面所有结点复制一份插入到newFirst之前
+                            newFirst = new HashEntry<K,V>(p.key, p.hash, newFirst, p.value);
+
+                        tab[index] = newFirst;  // 此时 newFirst 节点，是之前要删除的节点的前一个节点
                         count = c; // write-volatile
                     }
                 }
@@ -586,28 +617,33 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
         if (!(loadFactor > 0) || initialCapacity < 0 || concurrencyLevel <= 0)
             throw new IllegalArgumentException();
 
-        if (concurrencyLevel > MAX_SEGMENTS)
+        if (concurrencyLevel > MAX_SEGMENTS)     // MAX_SEGMENTS = 1 << 16  --> 2的16次方 所以 Segment 的最大个数是 65536
             concurrencyLevel = MAX_SEGMENTS;
 
         // Find power-of-two sizes best matching arguments
-        int sshift = 0;
-        int ssize = 1;
+        //比如我输入的concurrencyLevel=12，那么sshift = 4，ssize =16，所以sshift是意思就是1左移了几次比 concurrencyLevel 大，
+        //ssize就是那个大于等于concurrencyLevel的最小2的幂次方的数
+        int sshift = 0;  // n 次幂
+        int ssize = 1;   // 2 的 n 次幂结果
         while (ssize < concurrencyLevel) {
             ++sshift;
             ssize <<= 1;
         }
-        segmentShift = 32 - sshift;
-        segmentMask = ssize - 1;
-        this.segments = Segment.newArray(ssize);
+
+        segmentShift = 32 - sshift;     // segmentShift（段偏移量）
+        segmentMask = ssize - 1;        // segmentMask（段掩码）
+        this.segments = Segment.newArray(ssize);    // 初始化 Segment 桶的大小
 
         if (initialCapacity > MAXIMUM_CAPACITY)
             initialCapacity = MAXIMUM_CAPACITY;
-        int c = initialCapacity / ssize;
+
+        int c = initialCapacity / ssize;    // 默认 4
         if (c * ssize < initialCapacity)
             ++c;
+
         int cap = 1;
         while (cap < c)
-            cap <<= 1;
+            cap <<= 1;      // 默认 16
 
         for (int i = 0; i < this.segments.length; ++i)
             this.segments[i] = new Segment<K,V>(cap, loadFactor);
@@ -723,12 +759,12 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
             sum = 0;
             int mcsum = 0;
             for (int i = 0; i < segments.length; ++i) {
-                sum += segments[i].count;
-                mcsum += mc[i] = segments[i].modCount;
+                sum += segments[i].count;   // 循环相加每个段内数据的个数
+                mcsum += mc[i] = segments[i].modCount;   //循环相加每个段内的modCount
             }
-            if (mcsum != 0) {
+            if (mcsum != 0) {        //如果是0，代表根本没有过数据更改，也就是size是0
                 for (int i = 0; i < segments.length; ++i) {
-                    check += segments[i].count;
+                    check += segments[i].count;  //再次循环相加每个段内数据的个数
                     if (mc[i] != segments[i].modCount) {
                         check = -1; // force retry
                         break;
@@ -738,14 +774,16 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
             if (check == sum)
                 break;
         }
+
+        //加锁来统计每个段内的元素统计
         if (check != sum) { // Resort to locking all segments
             sum = 0;
             for (int i = 0; i < segments.length; ++i)
-                segments[i].lock();
+                segments[i].lock();     // 循环获取所有segment的锁
             for (int i = 0; i < segments.length; ++i)
-                sum += segments[i].count;
+                sum += segments[i].count;    // 在持有所有段的锁的时候进行count的相加
             for (int i = 0; i < segments.length; ++i)
-                segments[i].unlock();
+                segments[i].unlock();    // 循环释放所有段的锁
         }
         if (sum > Integer.MAX_VALUE)
             return Integer.MAX_VALUE;

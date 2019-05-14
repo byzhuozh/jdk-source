@@ -561,7 +561,7 @@ public class HashMap<K,V>
                     table[i] = next;
                 else
                     prev.next = next;
-                e.recordRemoval(this);  // HashMap 是空实现，LikedHashMap 重写了此方法，修改链表中的指向
+                e.recordRemoval(this);
                 return e;
             }
             prev = e;
