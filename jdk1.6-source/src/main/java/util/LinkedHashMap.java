@@ -298,7 +298,7 @@ public class LinkedHashMap<K,V>
      */
     private static class Entry<K,V> extends HashMap.Entry<K,V> {
         // These fields comprise the doubly linked list used for iteration.
-        Entry<K,V> before, after;
+        Entry<K,V> before, after;    // 记录当前节点的前一个节点和后一个节点， 注意和 next 节点的区别
 
 	Entry(int hash, K key, V value, HashMap.Entry<K,V> next) {
             super(hash, key, value, next);
@@ -306,6 +306,7 @@ public class LinkedHashMap<K,V>
 
         /**
          * Removes this entry from the linked list.
+         * 修改节点的前后指针
          */
         private void remove() {
             before.after = after;
@@ -314,6 +315,8 @@ public class LinkedHashMap<K,V>
 
         /**
          * Inserts this entry before the specified existing entry in the list.
+         *
+         * 把当前的节点添加到链表中
          */
         private void addBefore(Entry<K,V> existingEntry) {
             after  = existingEntry;
@@ -403,15 +406,18 @@ public class LinkedHashMap<K,V>
      * removes the eldest entry if appropriate.
      */
     void addEntry(int hash, K key, V value, int bucketIndex) {
-        createEntry(hash, key, value, bucketIndex);
+
+        createEntry(hash, key, value, bucketIndex); // 新增一个节点，同时维护节点的插入顺序链表
 
         // Remove eldest entry if instructed, else grow capacity if appropriate
+        // 如果有必要，移除LRU里面最老的Entry，否则判断是否该resize
         Entry<K,V> eldest = header.after;
-        if (removeEldestEntry(eldest)) {
+
+        if (removeEldestEntry(eldest)) {      //默认返回 false, 直接走扩容机制
             removeEntryForKey(eldest.key);
         } else {
             if (size >= threshold)
-                resize(2 * table.length);
+                resize(2 * table.length);   //调用 hashMao 的resize 方法按两倍扩容
         }
     }
 
@@ -421,9 +427,9 @@ public class LinkedHashMap<K,V>
      */
     void createEntry(int hash, K key, V value, int bucketIndex) {
         HashMap.Entry<K,V> old = table[bucketIndex];
-	Entry<K,V> e = new Entry<K,V>(hash, key, value, old);
-        table[bucketIndex] = e;
-        e.addBefore(header);
+	    Entry<K,V> e = new Entry<K,V>(hash, key, value, old);
+        table[bucketIndex] = e;  // 把新节点插入对应下标的的数组的头部
+        e.addBefore(header);    // 把新Entry也加到 header 链表结构里面去
         size++;
     }
 
