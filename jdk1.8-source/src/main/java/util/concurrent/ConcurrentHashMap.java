@@ -508,24 +508,28 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * because the top two bits of 32bit hash fields are used for
      * control purposes.
      */
+    // node数组最大容量：2^30=1073741824
     private static final int MAXIMUM_CAPACITY = 1 << 30;
 
     /**
      * The default initial table capacity.  Must be a power of 2
      * (i.e., at least 1) and at most MAXIMUM_CAPACITY.
      */
+    // 默认初始值，必须是2的幕数
     private static final int DEFAULT_CAPACITY = 16;
 
     /**
      * The largest possible (non-power of two) array size.
      * Needed by toArray and related methods.
      */
+    //数组可能最大值，需要与toArray（）相关方法关联
     static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
 
     /**
      * The default concurrency level for this table. Unused but
      * defined for compatibility with previous versions of this class.
      */
+    //并发级别，遗留下来的，为兼容以前的版本
     private static final int DEFAULT_CONCURRENCY_LEVEL = 16;
 
     /**
@@ -535,6 +539,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * simpler to use expressions such as {@code n - (n >>> 2)} for
      * the associated resizing threshold.
      */
+    // 负载因子
     private static final float LOAD_FACTOR = 0.75f;
 
     /**
@@ -545,6 +550,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * tree removal about conversion back to plain bins upon
      * shrinkage.
      */
+    // 链表转红黑树阀值,> 8 链表转换为红黑树
     static final int TREEIFY_THRESHOLD = 8;
 
     /**
@@ -552,6 +558,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * resize operation. Should be less than TREEIFY_THRESHOLD, and at
      * most 6 to mesh with shrinkage detection under removal.
      */
+    //树转链表阀值，小于等于6（tranfer时，lc、hc=0两个计数器分别++记录原bin、新binTreeNode数量，<=UNTREEIFY_THRESHOLD 则untreeify(lo)）
     static final int UNTREEIFY_THRESHOLD = 6;
 
     /**
@@ -581,22 +588,28 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * The maximum number of threads that can help resize.
      * Must fit in 32 - RESIZE_STAMP_BITS bits.
      */
+    // 2^15-1，help resize的最大线程数
     private static final int MAX_RESIZERS = (1 << (32 - RESIZE_STAMP_BITS)) - 1;
 
     /**
      * The bit shift for recording size stamp in sizeCtl.
      */
+    // 32-16=16，sizeCtl中记录size大小的偏移量
     private static final int RESIZE_STAMP_SHIFT = 32 - RESIZE_STAMP_BITS;
 
     /*
      * Encodings for Node hash fields. See above for explanation.
      */
-    static final int MOVED     = -1; // hash for forwarding nodes
-    static final int TREEBIN   = -2; // hash for roots of trees
+    // forwarding nodes的hash值
+    static final int MOVED     = -1; // hash for forwarding nodes     表示正在转移
+    // 树根节点的hash值
+    static final int TREEBIN   = -2; // hash for roots of trees 表示已经转换成树
+    // ReservationNode的hash值
     static final int RESERVED  = -3; // hash for transient reservations
     static final int HASH_BITS = 0x7fffffff; // usable bits of normal node hash
 
     /** Number of CPUS, to place bounds on some sizings */
+    // 可用处理器数量
     static final int NCPU = Runtime.getRuntime().availableProcessors();
 
     /** For serialization compatibility. */
@@ -750,16 +763,25 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * writes to be conservative.
      */
 
+    /*
+     * 用来返回节点数组的指定位置的节点的原子操作
+     */
     @SuppressWarnings("unchecked")
     static final <K,V> Node<K,V> tabAt(Node<K,V>[] tab, int i) {
         return (Node<K,V>)U.getObjectVolatile(tab, ((long)i << ASHIFT) + ABASE);
     }
 
+    /*
+     * cas原子操作，在指定位置设定值
+     */
     static final <K,V> boolean casTabAt(Node<K,V>[] tab, int i,
                                         Node<K,V> c, Node<K,V> v) {
         return U.compareAndSwapObject(tab, ((long)i << ASHIFT) + ABASE, c, v);
     }
 
+    /*
+     * 原子操作，在指定位置设定值
+     */
     static final <K,V> void setTabAt(Node<K,V>[] tab, int i, Node<K,V> v) {
         U.putObjectVolatile(tab, ((long)i << ASHIFT) + ABASE, v);
     }
@@ -770,12 +792,12 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * The array of bins. Lazily initialized upon first insertion.
      * Size is always a power of two. Accessed directly by iterators.
      */
-    transient volatile Node<K,V>[] table;
+    transient volatile Node<K,V>[] table;   //默认没初始化的数组，用来保存元素
 
     /**
      * The next table to use; non-null only while resizing.
      */
-    private transient volatile Node<K,V>[] nextTable;
+    private transient volatile Node<K,V>[] nextTable;   //转移的时候用的数组
 
     /**
      * Base counter value, used mainly when there is no contention,
@@ -792,6 +814,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * creation, or 0 for default. After initialization, holds the
      * next element count value upon which to resize the table.
      */
+    /*控制标识符，用来控制table的初始化和扩容的操作，不同的值有不同的含义
+     *当为负数时：-1代表正在初始化，-N代表有N-1个线程正在 进行扩容
+     *当为0时：代表当时的table还没有被初始化
+     *当为正数时：表示初始化或者下一次进行扩容的大小*/
     private transient volatile int sizeCtl;
 
     /**
@@ -832,6 +858,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * sizing to accommodate this many elements.
      * @throws IllegalArgumentException if the initial capacity of
      * elements is negative
+     *
+     * 如果在实例化对象的时候指定了容量，则初始化sizeCtl
      */
     public ConcurrentHashMap(int initialCapacity) {
         if (initialCapacity < 0)
@@ -846,6 +874,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * Creates a new map with the same mappings as the given map.
      *
      * @param m the map
+     *
+     * 当出入一个Map的时候，先设定sizeCtl为默认容量，在添加元素
      */
     public ConcurrentHashMap(Map<? extends K, ? extends V> m) {
         this.sizeCtl = DEFAULT_CAPACITY;
@@ -1001,65 +1031,105 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * @return the previous value associated with {@code key}, or
      *         {@code null} if there was no mapping for {@code key}
      * @throws NullPointerException if the specified key or value is null
+     *
+     *  单纯的额调用putVal方法，并且putVal的第三个参数设置为false
+     *  当设置为false的时候表示这个value一定会设置
+     *  true的时候，只有当这个key的value为空的时候才会设置
      */
     public V put(K key, V value) {
         return putVal(key, value, false);
     }
 
     /** Implementation for put and putIfAbsent */
+    /*
+     * 当添加一对键值对的时候，首先会去判断保存这些键值对的数组是不是初始化了，
+     * 如果没有的话就初始化数组
+     *  然后通过计算hash值来确定放在数组的哪个位置
+     * 如果这个位置为空则直接添加，如果不为空的话，则取出这个节点来
+     * 如果取出来的节点的hash值是MOVED(-1)的话，则表示当前正在对这个数组进行扩容，复制到新的数组，则当前线程也去帮助复制
+     * 最后一种情况就是，如果这个节点，不为空，也不在扩容，则通过synchronized来加锁，进行添加操作
+     *    然后判断当前取出的节点位置存放的是链表还是树
+     *    如果是链表的话，则遍历整个链表，直到取出来的节点的key来个要放的key进行比较，如果key相等，并且key的hash值也相等的话，
+     *          则说明是同一个key，则覆盖掉value，否则的话则添加到链表的末尾
+     *    如果是树的话，则调用putTreeVal方法把这个元素添加到树中去
+     *  最后在添加完成之后，会判断在该节点处共有多少个节点（注意是添加前的个数），如果达到8个以上了的话，
+     *  则调用treeifyBin方法来尝试将处的链表转为树，或者扩容数组
+     */
     final V putVal(K key, V value, boolean onlyIfAbsent) {
+        // key 和 value 不允许为空
         if (key == null || value == null) throw new NullPointerException();
-        int hash = spread(key.hashCode());
-        int binCount = 0;
+
+        int hash = spread(key.hashCode());  //取得key的hash值
+        int binCount = 0;    //用来计算在这个节点总共有多少个元素，用来控制扩容或者转移为树
+
         for (Node<K,V>[] tab = table;;) {
             Node<K,V> f; int n, i, fh;
             if (tab == null || (n = tab.length) == 0)
-                tab = initTable();
+                tab = initTable();   //第一次put的时候table没有初始化，则初始化table
+
+            //通过哈希计算出一个表中的位置因为n是数组的长度，所以(n-1)&hash肯定不会出现数组越界
             else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+                //如果这个位置没有元素的话，则通过cas的方式尝试添加，注意这个时候是没有加锁的
                 if (casTabAt(tab, i, null,
-                             new Node<K,V>(hash, key, value, null)))
+                             new Node<K,V>(hash, key, value, null)))     //创建一个Node添加到数组中区，null表示的是下一个节点为空
                     break;                   // no lock when adding to empty bin
             }
-            else if ((fh = f.hash) == MOVED)
+
+            /*
+             * 如果检测到某个节点的hash值是MOVED，则表示正在进行数组扩张的数据复制阶段，
+             * 则当前线程也会参与去复制，通过允许多线程复制的功能，一次来减少数组的复制所带来的性能损失
+             */
+            else if ((fh = f.hash) == MOVED)    // 该结点的hash值为MOVED
+                // 进行结点的转移（在扩容的过程中）
                 tab = helpTransfer(tab, f);
             else {
+                /*
+                 * 如果在这个位置有元素的话，就采用synchronized的方式加锁，
+                 *     如果是链表的话(hash大于0)，就对这个链表的所有元素进行遍历，
+                 *         如果找到了key和key的hash值都一样的节点，则把它的值替换到
+                 *         如果没找到的话，则添加在链表的最后面
+                 *  否则，是树的话，则调用putTreeVal方法添加到树中去
+                 *
+                 *  在添加完之后，会对该节点上关联的的数目进行判断，
+                 *  如果在8个以上的话，则会调用treeifyBin方法，来尝试转化为树，或者是扩容
+                 */
                 V oldVal = null;
                 synchronized (f) {
-                    if (tabAt(tab, i) == f) {
-                        if (fh >= 0) {
+                    if (tabAt(tab, i) == f) {    //再次取出要存储的位置的元素，跟前面取出来的比较
+                        if (fh >= 0) {           //取出来的元素的hash值大于0，当转换为树之后，hash值为-2
                             binCount = 1;
-                            for (Node<K,V> e = f;; ++binCount) {
+                            for (Node<K,V> e = f;; ++binCount) {     //遍历这个链表
                                 K ek;
-                                if (e.hash == hash &&
+                                if (e.hash == hash &&    //要存的元素的hash，key跟要存储的位置的节点的相同的时候，替换掉该节点的value即可
                                     ((ek = e.key) == key ||
                                      (ek != null && key.equals(ek)))) {
                                     oldVal = e.val;
-                                    if (!onlyIfAbsent)
+                                    if (!onlyIfAbsent)   //当使用putIfAbsent的时候，只有在这个key没有设置值得时候才设置
                                         e.val = value;
                                     break;
                                 }
                                 Node<K,V> pred = e;
-                                if ((e = e.next) == null) {
-                                    pred.next = new Node<K,V>(hash, key,
+                                if ((e = e.next) == null) { //如果不是同样的hash，同样的key的时候，则判断该节点的下一个节点是否为空，
+                                    pred.next = new Node<K,V>(hash, key,    //为空的话把这个要加入的节点设置为当前节点的下一个节点
                                                               value, null);
                                     break;
                                 }
                             }
                         }
-                        else if (f instanceof TreeBin) {
+                        else if (f instanceof TreeBin) {    //表示已经转化成红黑树类型了
                             Node<K,V> p;
                             binCount = 2;
-                            if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key,
+                            if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key,     //调用putTreeVal方法，将该元素添加到树中去
                                                            value)) != null) {
-                                oldVal = p.val;
+                                oldVal = p.val;  // 保存结点的val
                                 if (!onlyIfAbsent)
-                                    p.val = value;
+                                    p.val = value;   // 赋值结点value值
                             }
                         }
                     }
                 }
                 if (binCount != 0) {
-                    if (binCount >= TREEIFY_THRESHOLD)
+                    if (binCount >= TREEIFY_THRESHOLD)   //当在同一个节点的数目达到8个的时候，则扩张数组或将给节点的数据转为tree
                         treeifyBin(tab, i);
                     if (oldVal != null)
                         return oldVal;
@@ -1067,7 +1137,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 }
             }
         }
-        addCount(1L, binCount);
+        addCount(1L, binCount);  //计数
         return null;
     }
 
@@ -2219,23 +2289,31 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
 
     /**
      * Initializes table, using the size recorded in sizeCtl.
+     *
+     * 初始化数组table，
+     * 如果sizeCtl小于0，说明别的数组正在进行初始化，则让出执行权
+     * 如果sizeCtl大于0的话，则初始化一个大小为sizeCtl的数组
+     * 否则的话初始化一个默认大小(16)的数组
+     * 然后设置sizeCtl的值为数组长度的3/4
      */
     private final Node<K,V>[] initTable() {
         Node<K,V>[] tab; int sc;
-        while ((tab = table) == null || tab.length == 0) {
-            if ((sc = sizeCtl) < 0)
+        while ((tab = table) == null || tab.length == 0) {  //第一次put的时候，table还没被初始化，进入while
+            if ((sc = sizeCtl) < 0)     //sizeCtl初始值为0，当小于0的时候表示在别的线程在初始化表或扩展表
                 Thread.yield(); // lost initialization race; just spin
+
+            //SIZECTL：表示当前对象的内存偏移量，sc表示期望值，-1表示要替换的值，设定为-1表示要初始化表了
             else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
                 try {
                     if ((tab = table) == null || tab.length == 0) {
-                        int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
+                        int n = (sc > 0) ? sc : DEFAULT_CAPACITY;   //指定了大小的时候就创建指定大小的Node数组，否则创建指定大小(16)的Node数组
                         @SuppressWarnings("unchecked")
                         Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
                         table = tab = nt;
                         sc = n - (n >>> 2);
                     }
                 } finally {
-                    sizeCtl = sc;
+                    sizeCtl = sc;    //初始化后，sizeCtl长度为数组长度的3/4
                 }
                 break;
             }
