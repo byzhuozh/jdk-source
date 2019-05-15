@@ -580,14 +580,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     final Node<K,V> getNode(int hash, Object key) {
         Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
-        if ((tab = table) != null && (n = tab.length) > 0 &&
-            (first = tab[(n - 1) & hash]) != null) {
+        // 1. 定位键值对所在桶的位置
+        if ((tab = table) != null && (n = tab.length) > 0 && (first = tab[(n - 1) & hash]) != null) {
+            // 判断第一个节点是否就是该 key 对应的数据
             if (first.hash == hash && // always check first node
                 ((k = first.key) == key || (key != null && key.equals(k))))
                 return first;
+
             if ((e = first.next) != null) {
+                // 2. 如果 first 是 TreeNode 类型，则调用黑红树查找方法
                 if (first instanceof TreeNode)
                     return ((TreeNode<K,V>)first).getTreeNode(hash, key);
+
+                // 2. 对链表进行查找
                 do {
                     if (e.hash == hash &&
                         ((k = e.key) == key || (key != null && key.equals(k))))
@@ -625,7 +630,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * 当桶数组 table 为空时，通过扩容的方式初始化 table
      * 查找要插入的键值对是否已经存在，存在的话根据条件判断是否用新值替换旧值
      * 如果不存在，则将键值对链入链表中，并根据链表长度决定是否将链表转为红黑树
-     * 判断键值对数量是否大于阈值，大于的话则进行扩容操作
+     * 判断键值对数量是否
+     * 大于阈值，大于的话则进行扩容操作
      */
     public V put(K key, V value) {
         return putVal(hash(key), key, value, false, true);
@@ -706,6 +712,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * elements from each bin must either stay at same index, or move
      * with a power of two offset in the new table.
      *
+     * 计算新桶数组的容量 newCap 和新阈值 newThr
+     * 根据计算出的 newCap 创建新的桶数组，桶数组 table 也是在这里进行初始化的
+     * 将键值对节点重新映射到新的桶数组里。如果节点是 TreeNode 类型，则需要拆分红黑树。如果是普通节点，则节点按原顺序进行分组。
+     *
      * @return the table
      */
     final Node<K,V>[] resize() {
@@ -713,31 +723,48 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
         int oldThr = threshold;
         int newCap, newThr = 0;
+
+        // 如果 table 不为空，表明已经初始化过了
         if (oldCap > 0) {
+            // 当 table 容量超过容量最大值，则不再扩容
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
+            // 按旧容量和阈值的2倍计算新容量和阈值的大小, 2倍扩容
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                      oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
         }
         else if (oldThr > 0) // initial capacity was placed in threshold
+            /*
+             * 初始化时，将 threshold 的值赋值给 newCap，
+             * HashMap 使用 threshold 变量暂时保存 initialCapacity 参数的值
+             */
             newCap = oldThr;
         else {               // zero initial threshold signifies using defaults
+            /*
+             * 调用无参构造方法时，桶数组容量为默认容量，
+             * 阈值为默认容量与默认负载因子乘积
+             */
             newCap = DEFAULT_INITIAL_CAPACITY;
             newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
+
+        // newThr 为 0 时，按阈值计算公式进行计算
         if (newThr == 0) {
             float ft = (float)newCap * loadFactor;
             newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
                       (int)ft : Integer.MAX_VALUE);
         }
         threshold = newThr;
+        // 创建新的桶数组，桶数组的初始化也是在这里完成的
         @SuppressWarnings({"rawtypes","unchecked"})
-            Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
+        Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
+
         table = newTab;
         if (oldTab != null) {
+            // 如果旧的桶数组不为空，则遍历桶数组，并将键值对映射到新的桶数组中
             for (int j = 0; j < oldCap; ++j) {
                 Node<K,V> e;
                 if ((e = oldTab[j]) != null) {
@@ -745,11 +772,13 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     if (e.next == null)
                         newTab[e.hash & (newCap - 1)] = e;
                     else if (e instanceof TreeNode)
+                        // 重新映射时，需要对红黑树进行拆分
                         ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
                     else { // preserve order
                         Node<K,V> loHead = null, loTail = null;
                         Node<K,V> hiHead = null, hiTail = null;
                         Node<K,V> next;
+                        // 遍历链表，并将链表节点按原顺序进行分组
                         do {
                             next = e.next;
                             if ((e.hash & oldCap) == 0) {
@@ -767,6 +796,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
+
+                        // 将分组后的链表映射到新桶中
                         if (loTail != null) {
                             loTail.next = null;
                             newTab[j] = loHead;
@@ -807,6 +838,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 }
                 tl = p;
             } while ((e = e.next) != null); // 将普通链表转成由树形节点链表
+
             if ((tab[index] = hd) != null)
                 // 将树形链表转换成红黑树
                 hd.treeify(tab);
@@ -849,20 +881,27 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * @param matchValue if true only remove if value is equal
      * @param movable if false do not move other nodes while removing
      * @return the node, or null if none
+     *
+     * 第一步是定位桶位置，第二步遍历链表并找到键值相等的节点，第三步删除节点
      */
     final Node<K,V> removeNode(int hash, Object key, Object value,
                                boolean matchValue, boolean movable) {
         Node<K,V>[] tab; Node<K,V> p; int n, index;
-        if ((tab = table) != null && (n = tab.length) > 0 &&
-            (p = tab[index = (n - 1) & hash]) != null) {
+        // 1. 定位桶位置
+        if ((tab = table) != null && (n = tab.length) > 0 && (p = tab[index = (n - 1) & hash]) != null) {
             Node<K,V> node = null, e; K k; V v;
+
+            // 如果键的值与链表第一个节点相等，则将 node 指向该节点
             if (p.hash == hash &&
                 ((k = p.key) == key || (key != null && key.equals(k))))
                 node = p;
+
             else if ((e = p.next) != null) {
+                // 如果是 TreeNode 类型，调用红黑树的查找逻辑定位待删除节点
                 if (p instanceof TreeNode)
                     node = ((TreeNode<K,V>)p).getTreeNode(hash, key);
                 else {
+                    // 2. 遍历链表，找到待删除节点
                     do {
                         if (e.hash == hash &&
                             ((k = e.key) == key ||
@@ -874,6 +913,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     } while ((e = e.next) != null);
                 }
             }
+
+            // 3. 删除节点，并修复链表或红黑树
             if (node != null && (!matchValue || (v = node.value) == value ||
                                  (value != null && value.equals(v)))) {
                 if (node instanceof TreeNode)
@@ -1983,7 +2024,9 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          */
         final Node<K,V> untreeify(HashMap<K,V> map) {
             Node<K,V> hd = null, tl = null;
+            // 遍历 TreeNode 链表，并用 Node 替换
             for (Node<K,V> q = this; q != null; q = q.next) {
+                // 替换节点类型
                 Node<K,V> p = map.replacementNode(q, null);
                 if (tl == null)
                     hd = p;
@@ -2179,6 +2222,11 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             TreeNode<K,V> loHead = null, loTail = null;
             TreeNode<K,V> hiHead = null, hiTail = null;
             int lc = 0, hc = 0;
+
+            /*
+             * 红黑树节点仍然保留了 next 引用，故仍可以按链表方式遍历红黑树。
+             * 下面的循环是对红黑树节点进行分组，与上面类似
+             */
             for (TreeNode<K,V> e = b, next; e != null; e = next) {
                 next = (TreeNode<K,V>)e.next;
                 e.next = null;
@@ -2201,10 +2249,15 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             }
 
             if (loHead != null) {
+                // 如果 loHead 不为空，且链表长度小于等于 6，则将红黑树转成链表
                 if (lc <= UNTREEIFY_THRESHOLD)
                     tab[index] = loHead.untreeify(map);
                 else {
                     tab[index] = loHead;
+                    /*
+                     * hiHead == null 时，表明扩容后，
+                     * 所有节点仍在原位置，树结构不变，无需重新树化
+                     */
                     if (hiHead != null) // (else is already treeified)
                         loHead.treeify(tab);
                 }
