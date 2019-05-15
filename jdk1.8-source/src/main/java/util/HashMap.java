@@ -568,6 +568,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     public V get(Object key) {
         Node<K,V> e;
+        //实际上是根据输入节点的 hash 值和 key 值利用getNode 方法进行查找
         return (e = getNode(hash(key), key)) == null ? null : e.value;
     }
 
@@ -721,7 +722,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     final Node<K,V>[] resize() {
         Node<K,V>[] oldTab = table;
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
-        int oldThr = threshold;
+        int oldThr = threshold; // 阈值
         int newCap, newThr = 0;
 
         // 如果 table 不为空，表明已经初始化过了
@@ -738,7 +739,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         }
         else if (oldThr > 0) // initial capacity was placed in threshold
             /*
-             * 初始化时，将 threshold 的值赋值给 newCap，
+             * 初始化时（此构造器：HashMap(int initialCapacity, float loadFactor)），将 threshold 的值赋值给 newCap，
              * HashMap 使用 threshold 变量暂时保存 initialCapacity 参数的值
              */
             newCap = oldThr;
@@ -758,6 +759,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                       (int)ft : Integer.MAX_VALUE);
         }
         threshold = newThr;
+
         // 创建新的桶数组，桶数组的初始化也是在这里完成的
         @SuppressWarnings({"rawtypes","unchecked"})
         Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
@@ -769,42 +771,55 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 Node<K,V> e;
                 if ((e = oldTab[j]) != null) {
                     oldTab[j] = null;
+
+                    //如果当前节点是空的，则说明只有一个节点
                     if (e.next == null)
-                        newTab[e.hash & (newCap - 1)] = e;
+                        newTab[e.hash & (newCap - 1)] = e;  // 对新表重新取模，确定存放位置
+
+                    //如果当前节点是树形节点
                     else if (e instanceof TreeNode)
                         // 重新映射时，需要对红黑树进行拆分
                         ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
+
+                    //走到这里，说明是链表结构
                     else { // preserve order
-                        Node<K,V> loHead = null, loTail = null;
-                        Node<K,V> hiHead = null, hiTail = null;
+                        Node<K,V> loHead = null, loTail = null; //此对象接收会放在原来位置
+                        Node<K,V> hiHead = null, hiTail = null; //此对象接收会放在“j + oldCap”（当前位置索引+原容量的值）
                         Node<K,V> next;
+
                         // 遍历链表，并将链表节点按原顺序进行分组
                         do {
-                            next = e.next;
-                            if ((e.hash & oldCap) == 0) {
-                                if (loTail == null)
-                                    loHead = e;
+                            next = e.next;  //将Node结点的next赋值给next
+                            /**
+                             * 取余(%)操作中如果除数是2的幂次则等价于与其除数减一的与(&)操作
+                             *（也就是说 hash%length==hash&(length-1)的前提是 length 是2的 n 次方；）。
+                             * */
+                            if ((e.hash & oldCap) == 0) {   //如果结点e的hash值与原hash桶数组的长度作与运算为0
+                                if (loTail == null) //如果loTail为null
+                                    loHead = e; //将e结点赋值给loHead
                                 else
-                                    loTail.next = e;
-                                loTail = e;
+                                    loTail.next = e;    //否则将e赋值给loTail.next
+
+                                loTail = e;     //然后将e复制给loTail
                             }
-                            else {
-                                if (hiTail == null)
-                                    hiHead = e;
+                            else {  //如果结点e的hash值与原hash桶数组的长度作与运算不为0
+                                if (hiTail == null) //如果hiTail为null
+                                    hiHead = e; //将e赋值给hiHead
                                 else
-                                    hiTail.next = e;
-                                hiTail = e;
+                                    hiTail.next = e;    //如果hiTail不为空，将e复制给hiTail.next
+
+                                hiTail = e; //将e复制个hiTail
                             }
-                        } while ((e = next) != null);
+                        } while ((e = next) != null);   //直到e为空
 
                         // 将分组后的链表映射到新桶中
-                        if (loTail != null) {
-                            loTail.next = null;
-                            newTab[j] = loHead;
+                        if (loTail != null) {   //如果loTail不为空
+                            loTail.next = null; //将loTail.next设置为空
+                            newTab[j] = loHead; //将loHead赋值给新的hash桶数组[j]处
                         }
-                        if (hiTail != null) {
-                            hiTail.next = null;
-                            newTab[j + oldCap] = hiHead;
+                        if (hiTail != null) {    //如果hiTail不为空
+                            hiTail.next = null;  //将hiTail.next赋值为空
+                            newTab[j + oldCap] = hiHead;    //将hiHead赋值给新的hash桶数组[j+旧hash桶数组长度]
                         }
                     }
                 }
@@ -1922,24 +1937,31 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          * comparing keys.
          */
         final TreeNode<K,V> find(int h, Object k, Class<?> kc) {
-            TreeNode<K,V> p = this;
+            TreeNode<K,V> p = this;  // root 节点开始
             do {
                 int ph, dir; K pk;
                 TreeNode<K,V> pl = p.left, pr = p.right, q;
-                if ((ph = p.hash) > h)
-                    p = pl;
+                //首先进行hash 值的比较，若不同令当前节点变为它的左孩子或者右孩子
+                if ((ph = p.hash) > h)  //父节点hash 大于 传入节点的 hash
+                    p = pl;   // p 指向 p 的左子节点
                 else if (ph < h)
                     p = pr;
+                //hash 值相同，进行 key　值的比较
                 else if ((pk = p.key) == k || (k != null && k.equals(pk)))
                     return p;
                 else if (pl == null)
                     p = pr;
                 else if (pr == null)
                     p = pl;
+
+                //执行到这儿，意味着hash 值相同，key 值不
+                // 若k 是可比较的并且k.compareTo(pk) 返回结果不为０可进入下面elseif
                 else if ((kc != null ||
                           (kc = comparableClassFor(k)) != null) &&
                          (dir = compareComparables(kc, k, pk)) != 0)
                     p = (dir < 0) ? pl : pr;
+
+                 /*若 k 是不可比较的　或者　k.compareTo(pk) 返回结果为０则在整棵树中进行查找，先找右子树，右子树没有再找左子树*/
                 else if ((q = pr.find(h, k, kc)) != null)
                     return q;
                 else
@@ -1952,6 +1974,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          * Calls find for root node.
          */
         final TreeNode<K,V> getTreeNode(int h, Object k) {
+            //找到根节点，再往下找
             return ((parent != null) ? root() : this).find(h, k, null);
         }
 
@@ -1964,6 +1987,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          */
         static int tieBreakOrder(Object a, Object b) {
             int d;
+            //System.identityHashCode()实际是利用对象 a,b 的内存地址进行比较
             if (a == null || b == null ||
                 (d = a.getClass().getName().
                  compareTo(b.getClass().getName())) == 0)
@@ -1978,6 +2002,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          */
         final void treeify(Node<K,V>[] tab) {
             TreeNode<K,V> root = null;
+            //每个节点都维护着之前的 next 节点关系
             for (TreeNode<K,V> x = this, next; x != null; x = next) {
                 next = (TreeNode<K,V>)x.next;
                 x.left = x.right = null;
@@ -2050,16 +2075,20 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             Class<?> kc = null;
             boolean searched = false;
             TreeNode<K,V> root = (parent != null) ? root() : this;
+
             //从根节点开始查找合适的插入位置（与二叉搜索树查找过程相同）
             for (TreeNode<K,V> p = root;;) {
                 int dir, ph; K pk;
                 if ((ph = p.hash) > h)
                     dir = -1;   //　dir小于０，接下来查找当前节点左孩子
+
                 else if (ph < h)
                     dir = 1;    //　dir大于０，接下来查找当前节点右孩子
+
                 // 进入这个else if 代表　hash 值相同，key　相同
                 else if ((pk = p.key) == k || (k != null && k.equals(pk)))
                     return p;
+
                 else if ((kc == null &&
                           (kc = comparableClassFor(k)) == null) ||
                          (dir = compareComparables(kc, k, pk)) == 0) {
@@ -2080,11 +2109,15 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                              (q = ch.find(h, k, kc)) != null))
                             return q;
                     }
+
+                    // 既然ｋ是不可比较的，那我自己指定一个比较方式
                     dir = tieBreakOrder(k, pk);
                 }
 
                 TreeNode<K,V> xp = p;
                 if ((p = (dir <= 0) ? p.left : p.right) == null) {
+                    //找到了待插入的位置，xp 为待插入节点的父节点
+                    //注意TreeNode节点中既存在树状关系，也存在链式关系，并且是双端链表
                     Node<K,V> xpn = xp.next;
                     TreeNode<K,V> x = map.newTreeNode(h, k, v, xpn);
                     if (dir <= 0)
@@ -2095,6 +2128,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     x.parent = x.prev = xp;
                     if (xpn != null)
                         ((TreeNode<K,V>)xpn).prev = x;
+
+                    //插入节点后进行二叉树的平衡操作
                     moveRootToFront(tab, balanceInsertion(root, x));
                     return null;
                 }
@@ -2215,6 +2250,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          * @param tab the table for recording bin heads
          * @param index the index of the table being split
          * @param bit the bit of hash to split on
+         *
+         * 对红黑树进行　rehash 操作
          */
         final void split(HashMap<K,V> map, Node<K,V>[] tab, int index, int bit) {
             TreeNode<K,V> b = this;
