@@ -564,7 +564,7 @@ public abstract class AbstractQueuedLongSynchronizer
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
-        node.waitStatus = Node.CANCELLED;
+        node.waitStatus = Node.CANCELLED;   // 当前失效节点的额状态置为结束状态
 
         // If we are the tail, remove ourselves.
         if (node == tail && compareAndSetTail(node, pred)) {
@@ -750,14 +750,19 @@ public abstract class AbstractQueuedLongSynchronizer
      * @param arg the acquire argument
      * @param nanosTimeout max wait time
      * @return {@code true} if acquired
+     *
+     * 在有限的时间内去竞争锁
      */
     private boolean doAcquireNanos(long arg, long nanosTimeout)
         throws InterruptedException {
+        // 起始时间
         long lastTime = System.nanoTime();
+        // 线程入队
         final Node node = addWaiter(Node.EXCLUSIVE);
         boolean failed = true;
         try {
-            for (;;) {
+            for (;;) {  // 自旋
+                // 获取前驱节点
                 final Node p = node.predecessor();
                 if (p == head && tryAcquire(arg)) {
                     setHead(node);
@@ -765,15 +770,21 @@ public abstract class AbstractQueuedLongSynchronizer
                     failed = false;
                     return true;
                 }
+                // 如果已经超时,返回false
                 if (nanosTimeout <= 0)
                     return false;
-                if (shouldParkAfterFailedAcquire(p, node) &&
-                    nanosTimeout > spinForTimeoutThreshold)
+
+                // 超时时间未到,且需要挂起
+                if (shouldParkAfterFailedAcquire(p, node) && nanosTimeout > spinForTimeoutThreshold)
+                    // 阻塞当前线程直到超时时间到期
                     LockSupport.parkNanos(this, nanosTimeout);
+
                 long now = System.nanoTime();
+                // 更新nanosTimeout
                 nanosTimeout -= now - lastTime;
                 lastTime = now;
                 if (Thread.interrupted())
+                    //相应中断
                     throw new InterruptedException();
             }
         } finally {
@@ -1101,7 +1112,7 @@ public abstract class AbstractQueuedLongSynchronizer
         if (Thread.interrupted())
             throw new InterruptedException();
         return tryAcquire(arg) ||
-            doAcquireNanos(arg, nanosTimeout);
+            doAcquireNanos(arg, nanosTimeout);  // 可设置获取的锁的超时时间
     }
 
     /**
@@ -1366,6 +1377,10 @@ public abstract class AbstractQueuedLongSynchronizer
      *         current thread, and {@code false} if the current thread
      *         is at the head of the queue or the queue is empty
      * @since 1.7
+     *
+     * 判断当前链表中，头节点的下一个节点是不是当前线程节点
+     * 即：
+     *   判断当前线程是不是在头节点的下一个节点中
      */
     public final boolean hasQueuedPredecessors() {
         // The correctness of this depends on head being initialized
