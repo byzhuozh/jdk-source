@@ -162,8 +162,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
      * Sets this Future to the result of its computation
      * unless it has been cancelled.
      */
+    // execute(ftask);  执行时，触发的时 FutureTask  中的 run 方法
     public void run() {
-        sync.innerRun();
+        sync.innerRun();    // 内部直接调用 Callable 中的 call 方法
     }
 
     /**
@@ -192,11 +193,11 @@ public class FutureTask<V> implements RunnableFuture<V> {
         /** State value representing that task is ready to run */
         private static final int READY     = 0;
         /** State value representing that task is running */
-        private static final int RUNNING   = 1;
+        private static final int RUNNING   = 1;     // 表示当前任务的执行状态
         /** State value representing that task ran */
-        private static final int RAN       = 2;
+        private static final int RAN       = 2;     // 当前任务已经执行完
         /** State value representing that task was cancelled */
-        private static final int CANCELLED = 4;
+        private static final int CANCELLED = 4;     // 当前任务被取消
 
         /** The underlying callable */
         private final Callable<V> callable;
@@ -223,6 +224,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
         /**
          * Implements AQS base acquire to succeed if ran or cancelled
          */
+        //回溯，走 FutureTask 代码
         protected int tryAcquireShared(int ignore) {
             return innerIsDone() ? 1 : -1;
         }
@@ -245,7 +247,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
         }
 
         V innerGet() throws InterruptedException, ExecutionException {
-            acquireSharedInterruptibly(0);
+            acquireSharedInterruptibly(0);   // 走的 AbstractQueueSynchronizer 的代码，请求获取锁（如果线程任务未处理成功/返回，此时时阻塞的）
             if (getState() == CANCELLED)
                 throw new CancellationException();
             if (exception != null)
@@ -275,9 +277,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
                     releaseShared(0);
                     return;
                 }
-                if (compareAndSetState(s, RAN)) {
+                if (compareAndSetState(s, RAN)) {    // 把当前任务的状态修改为 执行完的状态
                     result = v;
-                    releaseShared(0);
+                    releaseShared(0);   // 释放 state 锁状态 -- 走的 AbstractQueueSynchronizer 的代码
                     done();
                     return;
                 }
@@ -323,20 +325,21 @@ public class FutureTask<V> implements RunnableFuture<V> {
             return true;
         }
 
+        // 走 Sync 内部类的 innerRun 方法
         void innerRun() {
-            if (!compareAndSetState(READY, RUNNING))
+            if (!compareAndSetState(READY, RUNNING))    // 把当前任务的状态修改为运行中，原子比较，预期状态为初始化
                 return;
 
             runner = Thread.currentThread();
             if (getState() == RUNNING) { // recheck after setting thread
                 V result;
                 try {
-                    result = callable.call();
+                    result = callable.call();   // 线程执行完，返回值直接放入 Sync 的 result 中
                 } catch (Throwable ex) {
                     setException(ex);
                     return;
                 }
-                set(result);
+                set(result);    // 线程执行完，返回值直接放入 Sync 的 result 中
             } else {
                 releaseShared(0); // cancel
             }
