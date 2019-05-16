@@ -156,20 +156,27 @@ public abstract class AbstractQueuedLongSynchronizer
      */
     static final class Node {
         /** Marker to indicate a node is waiting in shared mode */
+        // 表明是共享模式节点
         static final Node SHARED = new Node();
         /** Marker to indicate a node is waiting in exclusive mode */
+        // 表明是独占（排他）模式节点
         static final Node EXCLUSIVE = null;
 
         /** waitStatus value to indicate thread has cancelled */
+        // 标识当前Node对应的线程已处于结束状态，即线程已经取消了获取同步状态的请求
         static final int CANCELLED =  1;
         /** waitStatus value to indicate successor's thread needs unparking */
+        // 该值⽤于标识当前节点的后继节点对应的线程需要被唤醒
+        // 一般发生情况是：当前线程的后继线程处于阻塞状态，而当前线程被release或cancel掉，因此需要唤醒当前线程的后继线程。
         static final int SIGNAL    = -1;
         /** waitStatus value to indicate thread is waiting on condition */
+        // 线程(处在Condition休眠状态)在等待Condition唤醒，对应的waitStatus的值
         static final int CONDITION = -2;
         /**
          * waitStatus value to indicate the next acquireShared should
          * unconditionally propagate
          */
+        // 在共享模式中使⽤时表示获得的同步状态会被传播
         static final int PROPAGATE = -3;
 
         /**
@@ -206,6 +213,7 @@ public abstract class AbstractQueuedLongSynchronizer
          * CONDITION for condition nodes.  It is modified using CAS
          * (or when possible, unconditional volatile writes).
          */
+        /*********** 等待状态，可能为CANCELLED、 SIGNAL、 CONDITION、PROPAGATE ***********/
         volatile int waitStatus;
 
         /**
@@ -219,6 +227,8 @@ public abstract class AbstractQueuedLongSynchronizer
          * cancelled thread never succeeds in acquiring, and a thread only
          * cancels itself, not any other node.
          */
+        /*********** 维护双向链表的前后指针 ***********/
+        // 指向前驱节点
         volatile Node prev;
 
         /**
@@ -234,12 +244,14 @@ public abstract class AbstractQueuedLongSynchronizer
          * point to the node itself instead of null, to make life
          * easier for isOnSyncQueue.
          */
+        // 指向后继节点
         volatile Node next;
 
         /**
          * The thread that enqueued this node.  Initialized on
          * construction and nulled out after use.
          */
+        /*********** 存放尝试获取同步状态的线程 ***********/
         volatile Thread thread;
 
         /**
@@ -252,11 +264,16 @@ public abstract class AbstractQueuedLongSynchronizer
          * we save a field by using special value to indicate shared
          * mode.
          */
+        // 等待队列的后继节点，与Condition有关；
+        // nextWaiter是“区别当前CLH队列是 ‘独占锁’队列 还是 ‘共享锁’队列 的标记”
+        // 若nextWaiter=SHARED，则CLH队列是“独占锁”队列；
+        // 若nextWaiter=EXCLUSIVE，(即nextWaiter=null)，则CLH队列是“共享锁”队列。
         Node nextWaiter;
 
         /**
          * Returns true if node is waiting in shared mode
          */
+        // 是否为共享模式
         final boolean isShared() {
             return nextWaiter == SHARED;
         }
@@ -268,6 +285,7 @@ public abstract class AbstractQueuedLongSynchronizer
          *
          * @return the predecessor of this node
          */
+        // 获取前驱节点
         final Node predecessor() throws NullPointerException {
             Node p = prev;
             if (p == null)
@@ -296,16 +314,20 @@ public abstract class AbstractQueuedLongSynchronizer
      * If head exists, its waitStatus is guaranteed not to be
      * CANCELLED.
      */
+    // 指向队列头节点
     private transient volatile Node head;
 
     /**
      * Tail of the wait queue, lazily initialized.  Modified only via
      * method enq to add new wait node.
      */
+    // 指向队列尾节点
     private transient volatile Node tail;
 
     /**
      * The synchronization state.
+     *
+     * 同步器状态标识，存在volatile内存语义
      */
     private volatile long state;
 
@@ -313,6 +335,8 @@ public abstract class AbstractQueuedLongSynchronizer
      * Returns the current value of synchronization state.
      * This operation has memory semantics of a <tt>volatile</tt> read.
      * @return current state value
+     *
+     * 获取当前同步器状态标识
      */
     protected final long getState() {
         return state;
@@ -322,6 +346,8 @@ public abstract class AbstractQueuedLongSynchronizer
      * Sets the value of synchronization state.
      * This operation has memory semantics of a <tt>volatile</tt> write.
      * @param newState the new state value
+     *
+     * 设置同步器状态标识
      */
     protected final void setState(long newState) {
         state = newState;
@@ -338,6 +364,7 @@ public abstract class AbstractQueuedLongSynchronizer
      * @return true if successful. False return indicates that the actual
      *         value was not equal to the expected value.
      */
+    // 原⼦性操作，当state的值为expect，将其更新为update，更新成功返回true
     protected final boolean compareAndSetState(long expect, long update) {
         // See below for intrinsics setup to support this
         return unsafe.compareAndSwapLong(this, stateOffset, expect, update);
@@ -360,12 +387,12 @@ public abstract class AbstractQueuedLongSynchronizer
     private Node enq(final Node node) {
         for (;;) {
             Node t = tail;
-            if (t == null) { // Must initialize
+            if (t == null) { // Must initialize  如果队列为空，创建结点，同时被head和tail引用
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
                 node.prev = t;
-                if (compareAndSetTail(t, node)) {
+                if (compareAndSetTail(t, node)) {   //cas设置尾结点，不成功就一直重试
                     t.next = node;
                     return t;
                 }
@@ -380,16 +407,18 @@ public abstract class AbstractQueuedLongSynchronizer
      * @return the new node
      */
     private Node addWaiter(Node mode) {
-        Node node = new Node(Thread.currentThread(), mode);
+        Node node = new Node(Thread.currentThread(), mode);  //构造结点
         // Try the fast path of enq; backup to full enq on failure
         Node pred = tail;
+        //如果尾结点不为空，CAS快速尝试在尾部添加，若CAS设置成功，返回；否则，enq。
         if (pred != null) {
             node.prev = pred;
-            if (compareAndSetTail(pred, node)) {
+            if (compareAndSetTail(pred, node)) {    // cas快速设置，若失败，进入enq方法　　
                 pred.next = node;
                 return node;
             }
         }
+        // ⾃旋⽅式⼊队操作，将节点添加到同步队列
         enq(node);
         return node;
     }
@@ -418,9 +447,10 @@ public abstract class AbstractQueuedLongSynchronizer
          * to clear in anticipation of signalling.  It is OK if this
          * fails or if status is changed by waiting thread.
          */
+        //获取wait状态
         int ws = node.waitStatus;
         if (ws < 0)
-            compareAndSetWaitStatus(node, ws, 0);
+            compareAndSetWaitStatus(node, ws, 0);   // 将等待状态waitStatus设置为初始值0
 
         /*
          * Thread to unpark is held in successor, which is normally
@@ -428,15 +458,15 @@ public abstract class AbstractQueuedLongSynchronizer
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
          */
-        Node s = node.next;
-        if (s == null || s.waitStatus > 0) {
+        Node s = node.next; //后继结点
+        if (s == null || s.waitStatus > 0) {    //若后继结点为空，或状态为CANCEL（已失效），则从后尾部往前遍历找到一个处于正常阻塞状态的结点进行唤醒
             s = null;
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
                     s = t;
         }
         if (s != null)
-            LockSupport.unpark(s.thread);
+            LockSupport.unpark(s.thread);   //使用LockSupprot唤醒结点对应的线程
     }
 
     /**
@@ -456,14 +486,14 @@ public abstract class AbstractQueuedLongSynchronizer
          * unparkSuccessor, we need to know if CAS to reset status
          * fails, if so rechecking.
          */
-        for (;;) {
+        for (;;) { // 共享模式，持有同步状态的线程可能有多个，采用循环CAS保证线程安全
             Node h = head;
             if (h != null && h != tail) {
                 int ws = h.waitStatus;
                 if (ws == Node.SIGNAL) {
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
                         continue;            // loop to recheck cases
-                    unparkSuccessor(h);
+                    unparkSuccessor(h); //唤醒后继结点
                 }
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
@@ -568,28 +598,50 @@ public abstract class AbstractQueuedLongSynchronizer
      * @return {@code true} if thread should block
      */
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        //获取前驱结点的wait值
         int ws = pred.waitStatus;
-        if (ws == Node.SIGNAL)
+        if (ws == Node.SIGNAL)  // SINGAL为-1，意味着当前结点可以被安全地park
             /*
              * This node has already set status asking a release
              * to signal it, so it can safely park.
              */
             return true;
+
+        // ws>0，只有CANCEL状态ws才大于0。若前驱结点处于CANCEL状态，也就是此结点线程已经无效，
+        // 从后往前遍历，找到一个非CANCEL状态的结点，将自己设置为它的后继结点
         if (ws > 0) {
             /*
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
+             *
+             *  如果前驱节点的waitStatus⼤于0，表示前驱节点已经取消了排队等待，
+             * shouldParkAfterFailedAcquire() ⽅法中，分为三种情况：
+             *  1. 只有当前节点的前驱节点的 waitStatus 状态值为 SINGAL （值为-1）的情况下才会返回true，此时当前节点包装的线程才会执⾏挂起操作；
+             *  2. 当前驱节点 waitStatus 状态值⼤于0时，表示此时前驱节点已经取消了排队，因此需要为当前节点往前寻找⼀个 waitStatus
+             *  状态正常的节点作前驱节点（这⼀步在后⾯唤醒会有⽤处，此时若⽆法理解可以不必关注）；
+             *  3. 如果当前节点的前驱节点的 waitStatus 状态值为 CONDITION （值为-2）或 PROPAGATE （值为-3），
+             *  则使⽤CAS⽅式修改前驱节点的 waitStatus 状态值为 SIGNAL 。
+             *
+             *  上⾯这些操作的作⽤，其实是保证在被挂起的线程能在未来正确的被唤醒，因为在公平模式的独占锁中，被唤醒的线程永远是同步队列第⼀个节点的所包装的线程。
+             *  尝试向前查找⼀个waitStatus不⼤于0的节点作为当前节点的前驱节点，并把该节点的后继节点设置为当前节点，上⾯向前查找的过程即do ... while循环的作⽤，
+             *  这个不断向前查找的过程，可以将当前节点前⾯所有取消了排队的节点全部剔除略过，减⼩链表的⻓度
              */
             do {
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
             pred.next = node;
         } else {
-            /*
+            /**
+             * 当执⾏到这⾥，前驱节点的waitStatus只会为0，CONDITION（-2）、 PROPAGATE（-3），
+             * 此时则尝试将前驱节点的waitStatus状态设置为SIGNAL，
+             * 做这⼀步操作，主要是⽤于在后⾯某个线程释放锁时，
+             * 如果该线程的waitStatus状态为SIGNAL，且其为等待队列的头节点，就会尝试唤醒其后继节点。
+             *
              * waitStatus must be 0 or PROPAGATE.  Indicate that we
              * need a signal, but don't park yet.  Caller will need to
              * retry to make sure it cannot acquire before parking.
              */
+            // 若前驱结点为其他状态，将其设置为SIGNAL状态
             compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
         }
         return false;
@@ -608,8 +660,8 @@ public abstract class AbstractQueuedLongSynchronizer
      * @return {@code true} if interrupted
      */
     private final boolean parkAndCheckInterrupt() {
-        LockSupport.park(this);
-        return Thread.interrupted();
+        LockSupport.park(this); ;//使用LockSupport使线程进入阻塞状态
+        return Thread.interrupted();    // 线程是否被中断过
     }
 
     /*
@@ -632,15 +684,29 @@ public abstract class AbstractQueuedLongSynchronizer
     final boolean acquireQueued(final Node node, long arg) {
         boolean failed = true;
         try {
+            // 记录当前线程在⾃旋等待期间是否存在被中断操作
             boolean interrupted = false;
-            for (;;) {
-                final Node p = node.predecessor();
-                if (p == head && tryAcquire(arg)) {
-                    setHead(node);
-                    p.next = null; // help GC
+
+            for (;;) {  // 这⾥会让节点进⼊⾃旋状态
+
+                /**
+                 * 获取⾃⼰的前驱节点
+                 * 如果前驱节点为head节点，就可以尝试获取锁
+                 * 由于所有等待的节点都会调⽤该⽅法进⼊⾃旋
+                 * ⽽只有前驱节点为head节点的等待节点才能尝试获取锁
+                 * 这样就能保证永远是队⾸的节点获取锁
+                 */
+                final Node p = node.predecessor();  //找到当前结点的前驱结点
+
+                if (p == head && tryAcquire(arg)) { //如果前驱结点是头结点，才tryAcquire，其他结点是没有机会tryAcquire的。
+                    setHead(node);  //获取同步状态成功，将当前结点设置为头结点。
+                    p.next = null; // help GC   方便GC
                     failed = false;
                     return interrupted;
                 }
+
+                // 执⾏到此处，说明上⾯尝试获取锁失败了，因此可以尝试将当前线程挂起
+                // 如果没有获取到同步状态，通过shouldParkAfterFailedAcquire判断是否应该阻塞，parkAndCheckInterrupt用来阻塞线程
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     interrupted = true;
@@ -721,24 +787,34 @@ public abstract class AbstractQueuedLongSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireShared(long arg) {
-        final Node node = addWaiter(Node.SHARED);
-        boolean failed = true;
+        final Node node = addWaiter(Node.SHARED);   //构造一个共享结点，添加到同步队列尾部。若队列初始为空，先添加一个无意义的傀儡结点，再将新节点添加到队列尾部。
+        boolean failed = true;  //是否获取成功
         try {
-            boolean interrupted = false;
+            boolean interrupted = false;    //线程parking过程中是否被中断过
+
+            // 然后进⾏⾃旋，不断尝试获取同步状态
             for (;;) {
+                //找到前驱结点
                 final Node p = node.predecessor();
+                //头结点持有同步状态，只有前驱是头结点，才有机会尝试获取同步状态
                 if (p == head) {
+                    // 尝试获取共享锁
                     long r = tryAcquireShared(arg);
-                    if (r >= 0) {
-                        setHeadAndPropagate(node, r);
+                    if (r >= 0) {   //r>=0,获取成功
+                        setHeadAndPropagate(node, r);   //获取成功就将当前结点设置为头结点，若还有可用资源，传播下去，也就是继续唤醒后继结点
                         p.next = null; // help GC
                         if (interrupted)
+                            // 如果在等待期间出现中断，则重现中断操作
                             selfInterrupt();
                         failed = false;
                         return;
                     }
                 }
-                if (shouldParkAfterFailedAcquire(p, node) &&
+                /**
+                 * 执⾏到此处，说明上⾯尝试获取锁失败了，因此可以尝试将当前线挂起,
+                 * 这⾥的shouldParkAfterFailedAcquire()和parkAndCheckInterrupt()在之前已经讲解过了
+                 */
+                if (shouldParkAfterFailedAcquire(p, node) &&    //是否能安心进入parking状态
                     parkAndCheckInterrupt())
                     interrupted = true;
             }
@@ -848,6 +924,7 @@ public abstract class AbstractQueuedLongSynchronizer
      *         correctly.
      * @throws UnsupportedOperationException if exclusive mode is not supported
      */
+    // 独占模式下获取同步状态的⽅法
     protected boolean tryAcquire(long arg) {
         throw new UnsupportedOperationException();
     }
@@ -874,6 +951,7 @@ public abstract class AbstractQueuedLongSynchronizer
      *         correctly.
      * @throws UnsupportedOperationException if exclusive mode is not supported
      */
+    // 独占模式下释放同步状态的⽅法
     protected boolean tryRelease(long arg) {
         throw new UnsupportedOperationException();
     }
@@ -910,6 +988,7 @@ public abstract class AbstractQueuedLongSynchronizer
      *         correctly.
      * @throws UnsupportedOperationException if shared mode is not supported
      */
+    // 共享模式下获取同步状态的⽅法
     protected long tryAcquireShared(long arg) {
         throw new UnsupportedOperationException();
     }
@@ -935,6 +1014,7 @@ public abstract class AbstractQueuedLongSynchronizer
      *         correctly.
      * @throws UnsupportedOperationException if shared mode is not supported
      */
+    // 共享模式下释放同步状态的⽅法
     protected boolean tryReleaseShared(long arg) {
         throw new UnsupportedOperationException();
     }
@@ -954,6 +1034,7 @@ public abstract class AbstractQueuedLongSynchronizer
      *         {@code false} otherwise
      * @throws UnsupportedOperationException if conditions are not supported
      */
+    // 判断是否持有独占同步状态
     protected boolean isHeldExclusively() {
         throw new UnsupportedOperationException();
     }
@@ -1034,10 +1115,11 @@ public abstract class AbstractQueuedLongSynchronizer
      * @return the value returned from {@link #tryRelease}
      */
     public final boolean release(long arg) {
+        //调用使用者重写的tryRelease方法，若成功，唤醒其后继结点，失败则返回false
         if (tryRelease(arg)) {
             Node h = head;
             if (h != null && h.waitStatus != 0)
-                unparkSuccessor(h);
+                unparkSuccessor(h); //唤醒后继结点
             return true;
         }
         return false;
@@ -1055,7 +1137,7 @@ public abstract class AbstractQueuedLongSynchronizer
      *        and can represent anything you like.
      */
     public final void acquireShared(long arg) {
-        if (tryAcquireShared(arg) < 0)
+        if (tryAcquireShared(arg) < 0)     //返回值小于0，获取同步状态失败，排队去；获取同步状态成功，直接返回去干自己的事儿
             doAcquireShared(arg);
     }
 
@@ -1115,7 +1197,7 @@ public abstract class AbstractQueuedLongSynchronizer
      */
     public final boolean releaseShared(long arg) {
         if (tryReleaseShared(arg)) {
-            doReleaseShared();
+            doReleaseShared();  //释放同步状态
             return true;
         }
         return false;
