@@ -575,13 +575,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * @throws NullPointerException if <tt>workQueue</tt>
      * or <tt>threadFactory</tt> or <tt>handler</tt> are null.
      */
-    public ThreadPoolExecutor(int corePoolSize,
-                              int maximumPoolSize,
-                              long keepAliveTime,
-                              TimeUnit unit,
-                              BlockingQueue<Runnable> workQueue,
-                              ThreadFactory threadFactory,
-                              RejectedExecutionHandler handler) {
+    public ThreadPoolExecutor(int corePoolSize,    // 核心池大小
+                              int maximumPoolSize,  // 线程池的最大线程数
+                              long keepAliveTime,   // 线程缓存的时间
+                              TimeUnit unit,    // keepAliveTime的时间单位
+                              BlockingQueue<Runnable> workQueue,    // 存储等待执行任务的阻塞队列
+                              ThreadFactory threadFactory,  // 线程工厂，主要用来创建线程
+                              RejectedExecutionHandler handler) {   // 拒绝处理任务时的策略
         if (corePoolSize < 0 ||
             maximumPoolSize <= 0 ||
             maximumPoolSize < corePoolSize ||
