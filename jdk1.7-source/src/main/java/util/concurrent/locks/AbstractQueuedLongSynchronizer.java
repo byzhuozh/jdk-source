@@ -439,6 +439,8 @@ public abstract class AbstractQueuedLongSynchronizer
     /**
      * Wakes up node's successor, if one exists.
      *
+     * 唤醒当前节点的后继节点
+     *
      * @param node the node
      */
     private void unparkSuccessor(Node node) {
@@ -457,12 +459,17 @@ public abstract class AbstractQueuedLongSynchronizer
          * just the next node.  But if cancelled or apparently null,
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
+         *
+         * 需要唤醒的线程通常是存储在下一个节点中的，但是如果这个节点被取消或者.....。必须从尾部向前进行遍历
          */
         Node s = node.next; //后继结点
+
+        //正常情况下，会直接唤醒后继节点
+        //但是如果后继节点处于 cannel状态(说明被撤销了)，则从队尾开始找到第一个未被 cannel 的节点
         if (s == null || s.waitStatus > 0) {    //若后继结点为空，或状态为CANCEL（已失效），则从后尾部往前遍历找到一个处于正常阻塞状态的结点进行唤醒
             s = null;
             for (Node t = tail; t != null && t != node; t = t.prev)
-                if (t.waitStatus <= 0)
+                if (t.waitStatus <= 0)  // 从 tail 开始向前找，是为了考虑并发入队 （enq） 的情况
                     s = t;
         }
         if (s != null)
