@@ -582,12 +582,14 @@ public class ReentrantReadWriteLock
                      *      如果当前只有⼀个线程的话，还不需要使⽤readHolds，直接更新firstReaderHoldCount来记录重⼊数，
                      *      当有第⼆个线程来的时候，就要使⽤readHolds，每个线程拥有⾃⼰的副本，⽤来保存⾃⼰的重⼊数。
                      */
-                    HoldCounter rh = cachedHoldCounter;
+                    HoldCounter rh = cachedHoldCounter;   // cachedHoldCounter 代表的是最后一个获取读锁的线程的计数器。
                     if (rh == null || rh.tid != current.getId())
-                        cachedHoldCounter = rh = readHolds.get();
+                        cachedHoldCounter = rh = readHolds.get();  //如果最后一个线程计数器是 null 或者不是当前线程，那么就新建一个 HoldCounter 对象
                     else if (rh.count == 0)
-                        readHolds.set(rh);
+                        //加入到readHolds中
+                        readHolds.set(rh);  // 这边存在的情况：cachedHoldCounter 所在的线程已经释放了，但是又重新来加读锁，所以又重新加入到 readHolds 中
 
+                    //计数+1
                     rh.count++;
                 }
                 // 返回1，表示获取共享锁成功
