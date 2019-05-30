@@ -228,6 +228,14 @@ public interface Condition {
      * @throws InterruptedException if the current thread is interrupted
      *         (and interruption of thread suspension is supported)
      */
+    /**
+     * 暂停此线程直至一下四种情况发生
+     * 1.此Condition被signal()
+     * 2.此Condition被signalAll()
+     * 3.Thread.interrupt()
+     * 4.伪wakeup
+     * 以上情况.在能恢复方法执行时,当前线程必须要能获得锁
+     */
     void await() throws InterruptedException;
 
     /**
@@ -264,6 +272,7 @@ public interface Condition {
      * thrown (such as {@link IllegalMonitorStateException}) and the
      * implementation must document that fact.
      */
+    //跟上面类似,不过不响应中断
     void awaitUninterruptibly();
 
     /**
@@ -355,6 +364,7 @@ public interface Condition {
      * @throws InterruptedException if the current thread is interrupted
      *         (and interruption of thread suspension is supported)
      */
+    //带超时时间的await()
     long awaitNanos(long nanosTimeout) throws InterruptedException;
 
     /**
@@ -370,6 +380,7 @@ public interface Condition {
      * @throws InterruptedException if the current thread is interrupted
      *         (and interruption of thread suspension is supported)
      */
+    //带超时时间的await()
     boolean await(long time, TimeUnit unit) throws InterruptedException;
 
     /**
@@ -447,6 +458,7 @@ public interface Condition {
      * @throws InterruptedException if the current thread is interrupted
      *         (and interruption of thread suspension is supported)
      */
+    //带deadline的await()
     boolean awaitUntil(Date deadline) throws InterruptedException;
 
     /**
@@ -465,6 +477,7 @@ public interface Condition {
      * not held. Typically, an exception such as {@link
      * IllegalMonitorStateException} will be thrown.
      */
+    //唤醒某个等待在此condition的线程
     void signal();
 
     /**
@@ -483,5 +496,6 @@ public interface Condition {
      * not held. Typically, an exception such as {@link
      * IllegalMonitorStateException} will be thrown.
      */
+    //唤醒所有等待在此condition的所有线程
     void signalAll();
 }

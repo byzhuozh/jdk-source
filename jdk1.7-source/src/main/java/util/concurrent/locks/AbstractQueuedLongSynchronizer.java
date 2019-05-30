@@ -469,7 +469,7 @@ public abstract class AbstractQueuedLongSynchronizer
         if (s == null || s.waitStatus > 0) {    //若后继结点为空，或状态为CANCEL（已失效），则从后尾部往前遍历找到一个处于正常阻塞状态的结点进行唤醒
             s = null;
             for (Node t = tail; t != null && t != node; t = t.prev)
-                if (t.waitStatus <= 0)  // 从 tail 开始向前找，是为了考虑并发入队 （enq） 的情况
+                if (t.waitStatus <= 0)  // 从 tail 开始向前找，是为了考虑并发入队 的情况
                     s = t;
         }
         if (s != null)
@@ -556,10 +556,14 @@ public abstract class AbstractQueuedLongSynchronizer
         if (node == null)
             return;
 
+        // 节点线程数据设置为null
         node.thread = null;
 
         // Skip cancelled predecessors
+        // 跳过取消的节点
         Node pred = node.prev;
+
+        // 从当前节点的前置节点开始扫描去掉废弃的节点
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
 
@@ -574,20 +578,28 @@ public abstract class AbstractQueuedLongSynchronizer
         node.waitStatus = Node.CANCELLED;   // 当前失效节点的额状态置为结束状态
 
         // If we are the tail, remove ourselves.
+        // 如果node节点时尾节点，将node⾃⼰移除
         if (node == tail && compareAndSetTail(node, pred)) {
             compareAndSetNext(pred, predNext, null);
         } else {
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
+            // 如果node的后继节点需要被唤醒，则需要将node的前驱节点的后继连接到这个后继节点
             int ws;
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
                  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
+                // node的后继节点
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
+                    // CAS 操作，设置后置节点
+                    // 这个操作就相当去双写链表去掉node节点
                     compareAndSetNext(pred, predNext, next);
             } else {
+                // 唤醒node节点
+                // 注意！此时node节点还在链表中
+                // 他的真正移除是依靠node后置节点的shouldParkAfterFailedAcquire 去移除节点操作完成的
                 unparkSuccessor(node);
             }
 
@@ -1714,9 +1726,13 @@ public abstract class AbstractQueuedLongSynchronizer
      */
     public class ConditionObject implements Condition, java.io.Serializable {
         private static final long serialVersionUID = 1173984872572414699L;
+
         /** First node of condition queue. */
+        /** 条件队列的头节点， transient修饰，不进⾏序列化 */
         private transient Node firstWaiter;
+
         /** Last node of condition queue. */
+        /** 条件队列的尾节点， transient修饰，不进⾏序列化 */
         private transient Node lastWaiter;
 
         /**
@@ -1731,18 +1747,23 @@ public abstract class AbstractQueuedLongSynchronizer
          * @return its new wait node
          */
         private Node addConditionWaiter() {
+            // 尾节点
             Node t = lastWaiter;
             // If lastWaiter is cancelled, clean out.
+            // 如果尾节点的waitStatus状态不为CONDITION，将进⾏清理操作
             if (t != null && t.waitStatus != Node.CONDITION) {
                 unlinkCancelledWaiters();
                 t = lastWaiter;
             }
+            // 构造新节点， waitStatus值为CONDITION
             Node node = new Node(Thread.currentThread(), Node.CONDITION);
+            // 将新节点添加到条件队列
             if (t == null)
                 firstWaiter = node;
             else
                 t.nextWaiter = node;
             lastWaiter = node;
+            // 返回新添加的节点
             return node;
         }
 
@@ -1789,22 +1810,34 @@ public abstract class AbstractQueuedLongSynchronizer
          * without requiring many re-traversals during cancellation
          * storms.
          */
+        // 清理条件队列中取消等待的节点
         private void unlinkCancelledWaiters() {
+            // 游标节点，从第⼀个节点开始遍历
             Node t = firstWaiter;
             Node trail = null;
             while (t != null) {
+                // 获取游标节点的后继节点
                 Node next = t.nextWaiter;
                 if (t.waitStatus != Node.CONDITION) {
+                    // 游标节点的waitStatus不为CONDITION，表示其取消了等待
+                    // 先断开与后继节点的连接
                     t.nextWaiter = null;
                     if (trail == null)
+                        // 运⾏到这⾥，说明游标节点前⾯没有节点
+                        // 因此直接将firstWaiter指向游标节点的下⼀个节点即可
                         firstWaiter = next;
                     else
+                        // 运⾏到这⾥，说明游标节点前⾯没有节点
+                        // 因此直接将firstWaiter指向游标节点的下⼀个节点即可
                         trail.nextWaiter = next;
                     if (next == null)
+                        // next为空表示已经遍历到队列尾了
                         lastWaiter = trail;
                 }
                 else
+                    // 游标节点waitStatus为CONDITION，因此它还在等待，记录这⼀次的游标节点
                     trail = t;
+                // 游标后移
                 t = next;
             }
         }
@@ -1854,11 +1887,18 @@ public abstract class AbstractQueuedLongSynchronizer
          *      {@link #acquire} with saved state as argument.
          * </ol>
          */
+        /**
+         * 暂停此线程,直至许可满足
+         * 只看没有中断和超时的await方法,其它处理中断和超时的逻辑不care
+         */
         public final void awaitUninterruptibly() {
             Node node = addConditionWaiter();
+            //释放当前线程的锁
             long savedState = fullyRelease(node);
             boolean interrupted = false;
+            //看自己在不在等待队列,在
             while (!isOnSyncQueue(node)) {
+                //为了线程调度,禁用当前的线程,直到许可可用
                 LockSupport.park(this);
                 if (Thread.interrupted())
                     interrupted = true;
@@ -1875,8 +1915,11 @@ public abstract class AbstractQueuedLongSynchronizer
          */
 
         /** Mode meaning to reinterrupt on exit from wait */
+        // 异常标识，表示在退出等待时需要重新中断线程
         private static final int REINTERRUPT =  1;
+
         /** Mode meaning to throw InterruptedException on exit from wait */
+        // 异常标识，表示在退出等待时需要抛出InterruptedException异常
         private static final int THROW_IE    = -1;
 
         /**
@@ -1917,21 +1960,45 @@ public abstract class AbstractQueuedLongSynchronizer
          * </ol>
          */
         public final void await() throws InterruptedException {
+            // 由于该⽅法是可中断的
             if (Thread.interrupted())
                 throw new InterruptedException();
+
+            // 将当前线程添加到条件队列中，返回的添加的节点
             Node node = addConditionWaiter();
+
+            // 释放锁，返回值是拥有锁时的state的值
             long savedState = fullyRelease(node);
             int interruptMode = 0;
+
+            /**
+             * 当节点不在同步队列中时会不断循环
+             * 如果isOnSyncQueue返回true，表示节点已从条件队列转移到同步队列中了
+             */
             while (!isOnSyncQueue(node)) {
+                // 挂起当前线程，当前线程会阻塞在这⾥等待被唤醒，不在往下执⾏
                 LockSupport.park(this);
+
+                /**
+                 * 需要注意这⾥， checkInterruptWhileWaiting(node)返回值为 true时也会结束循环
+                 */
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0)
                     break;
             }
+
+            /**
+             * 代码运⾏到这⾥，说明节点被唤醒了
+             * 当acquireQueued(node, savedState)返回true时，表示线程已经获取到锁了
+             * 且线程在等待期间发⽣了中断
+             * 此时会判断interruptMode是否为THROW_IE，如果不是，将interruptMode置为REINTERRUPT
+             */
             if (acquireQueued(node, savedState) && interruptMode != THROW_IE)
                 interruptMode = REINTERRUPT;
             if (node.nextWaiter != null) // clean up if cancelled
+                // 清理取消等待的线程节点，后⾯会详细分析
                 unlinkCancelledWaiters();
             if (interruptMode != 0)
+                // 如果interruptMode不为0，需要处理产⽣的中断异常，后⾯会详细分 析
                 reportInterruptAfterWait(interruptMode);
         }
 
