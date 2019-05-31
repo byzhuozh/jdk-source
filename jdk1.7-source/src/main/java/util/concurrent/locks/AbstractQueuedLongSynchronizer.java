@@ -1519,11 +1519,20 @@ public abstract class AbstractQueuedLongSynchronizer
      * a condition queue, is now waiting to reacquire on sync queue.
      * @param node the node
      * @return true if is reacquiring
+sig     *
+     * ⽤于判断节点是否被移⼊了同步队列
      */
     final boolean isOnSyncQueue(Node node) {
         if (node.waitStatus == Node.CONDITION || node.prev == null)
+            /**
+             * 需要注意的是，节点在被移⼊同步队列时， waitStatus会被置为0
+             * 如果node的waitStatus为CONDITION，说明该节点还在条件队列
+             * 如果node的waitStatus不为CONDITION，但它的前驱节点为空，说明它现在是等待队列的头节点
+             * 等待队列的头节点是获取了锁的节点，不处于同步队列中
+             */
             return false;
         if (node.next != null) // If has successor, it must be on queue
+            // 如果节点有后继节点，⼀定是位于同步队列
             return true;
         /*
          * node.prev can be non-null, but not yet on queue because
@@ -1532,6 +1541,12 @@ public abstract class AbstractQueuedLongSynchronizer
          * will always be near the tail in calls to this method, and
          * unless the CAS failed (which is unlikely), it will be
          * there, so we hardly ever traverse much.
+         *
+         * 需要在同步队列中从后往前遍历查找，以判断node是否处于同步队列中
+         * 条件队列是单向链表，节点prev不会有值；⽽同步队列是双向链表，节点的 prev是有值的
+         * 因此是否可以通过判断prev是否为null来判断节点是不是在同步队列？
+         * 不能！由于AQS中在节点⼊队时，⾸先设置node.prev为tail，
+         * 然后以CAS⽅式将⾃⼰设置为新的tail，但是这个CAS操作可能是失败的，此时节点并没有成功⼊队
          */
         return findNodeFromTail(node);
     }
@@ -1562,6 +1577,9 @@ public abstract class AbstractQueuedLongSynchronizer
     final boolean transferForSignal(Node node) {
         /*
          * If cannot change waitStatus, the node has been cancelled.
+         * 尝试CAS⽅式修改node节点的waitStatus为0，
+         * 如果修改失败，说明node节点的waitStatus不为CONDITION，
+         * 将直接返回false，表示唤醒失败
          */
         if (!compareAndSetWaitStatus(node, Node.CONDITION, 0))
             return false;
@@ -1571,9 +1589,17 @@ public abstract class AbstractQueuedLongSynchronizer
          * indicate that thread is (probably) waiting. If cancelled or
          * attempt to set waitStatus fails, wake up to resync (in which
          * case the waitStatus can be transiently and harmlessly wrong).
+         *
+         * 调⽤enq(node)进⾏⾃旋⽅式⼊队操作，将节点添加到同步队列
+         * 这个⽅法返回的p是添加成功后node节点在同步队列中前驱节点
          */
         Node p = enq(node);
         int ws = p.waitStatus;
+        /**
+         * 如果p节点的waitStatus⼤于0，表示node的前驱节点已经取消了排队，直接唤醒node节点上的线程；
+         * 如果p节点的waitStatus⼩于或等于0，尝试修改p节点的waitStatus为SIGNAL，这是同步队列⼊队的常规操作
+         * 如果修改失败，也直接唤醒node节点上的线程
+         */
         if (ws > 0 || !compareAndSetWaitStatus(p, ws, Node.SIGNAL))
             LockSupport.unpark(node.thread);
         return true;
@@ -1613,6 +1639,9 @@ public abstract class AbstractQueuedLongSynchronizer
         boolean failed = true;
         try {
             long savedState = getState();
+
+            // 释放node节点包装的线程获取的锁，释放成功后， state会置为0
+            // 这⾥release()的参数是savedState，是为了重置所有重⼊操作修改state的累计值
             if (release(savedState)) {
                 failed = false;
                 return savedState;
@@ -1620,6 +1649,7 @@ public abstract class AbstractQueuedLongSynchronizer
                 throw new IllegalMonitorStateException();
             }
         } finally {
+            // 如果失败，就直接将node节点的waitStatus置为CANCELLED，取消等待状态
             if (failed)
                 node.waitStatus = Node.CANCELLED;
         }
@@ -1775,9 +1805,20 @@ public abstract class AbstractQueuedLongSynchronizer
          */
         private void doSignal(Node first) {
             do {
+                /**
+                 * 先将firstWaiter后移，如果为null表示条件队列已经没有节点了，因此也将lastWaiter置为null
+                 */
                 if ( (firstWaiter = first.nextWaiter) == null)
                     lastWaiter = null;
+                // 因为first指向的节点即将转移到同步队列了，因此断开它与条件队列的连接
                 first.nextWaiter = null;
+
+                /**
+                 * doSignal(Node) ⽅法表明，尝试唤醒的节点是从条件队列头开始选取的，如果唤醒失败，会往后依次选择节点尝试，直到遍历到条件队列末尾。
+                 * AQS类的 transferForSignal(Node) ⽅法的源码如下：
+                 * while条件中，使⽤transferForSignal(first)将待唤醒的节点转移到同步队列
+                 * 如果转移失败的话，就选择下⼀个节点尝试转移，直到队列为空
+                 */
             } while (!transferForSignal(first) &&
                      (first = firstWaiter) != null);
         }
@@ -1789,6 +1830,7 @@ public abstract class AbstractQueuedLongSynchronizer
         private void doSignalAll(Node first) {
             lastWaiter = firstWaiter = null;
             do {
+                // 遍历整个条件队列，对每个节点都执⾏transferForSignal()操作进⾏唤醒
                 Node next = first.nextWaiter;
                 first.nextWaiter = null;
                 transferForSignal(first);
@@ -1851,12 +1893,17 @@ public abstract class AbstractQueuedLongSynchronizer
          *
          * @throws IllegalMonitorStateException if {@link #isHeldExclusively}
          *         returns {@code false}
+         *
+         * 唤醒挂起的线程
          */
         public final void signal() {
+            // 执⾏唤醒的线程必须拥有独占锁
             if (!isHeldExclusively())
                 throw new IllegalMonitorStateException();
+            // 唤醒头节点
             Node first = firstWaiter;
             if (first != null)
+                // 执⾏doSignal()唤醒
                 doSignal(first);
         }
 
@@ -1872,6 +1919,7 @@ public abstract class AbstractQueuedLongSynchronizer
                 throw new IllegalMonitorStateException();
             Node first = firstWaiter;
             if (first != null)
+                // 唤醒条件队列所有的节点
                 doSignalAll(first);
         }
 
@@ -1988,17 +2036,16 @@ public abstract class AbstractQueuedLongSynchronizer
 
             /**
              * 代码运⾏到这⾥，说明节点被唤醒了
-             * 当acquireQueued(node, savedState)返回true时，表示线程已经获取到锁了
-             * 且线程在等待期间发⽣了中断
+             * 当acquireQueued(node, savedState)返回true时，表示线程已经获取到锁了，且线程在等待期间发⽣了中断
              * 此时会判断interruptMode是否为THROW_IE，如果不是，将interruptMode置为REINTERRUPT
              */
             if (acquireQueued(node, savedState) && interruptMode != THROW_IE)
                 interruptMode = REINTERRUPT;
             if (node.nextWaiter != null) // clean up if cancelled
-                // 清理取消等待的线程节点，后⾯会详细分析
+                // 清理取消等待的线程节点
                 unlinkCancelledWaiters();
             if (interruptMode != 0)
-                // 如果interruptMode不为0，需要处理产⽣的中断异常，后⾯会详细分 析
+                // 如果interruptMode不为0，需要处理产⽣的中断异常
                 reportInterruptAfterWait(interruptMode);
         }
 
