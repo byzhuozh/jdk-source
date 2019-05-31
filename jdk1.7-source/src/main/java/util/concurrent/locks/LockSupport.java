@@ -116,8 +116,12 @@ import sun.misc.Unsafe;
  *   }
  * }}</pre>
  */
-
+/**
+ * 提供阻塞线程和唤醒线程的方法。
+ */
 public class LockSupport {
+
+    // 构造函数是私有的，所以不能在外部实例化
     private LockSupport() {} // Cannot be instantiated.
 
     // Hotspot implementation via intrinsics API
@@ -131,6 +135,7 @@ public class LockSupport {
         } catch (Exception ex) { throw new Error(ex); }
     }
 
+    // 用来设置线程t的parkBlocker属性。用于记录线程被谁阻塞的，此对象在线程受阻塞时被记录，以允许监视工具和诊断工具确定线程受阻塞的原因。
     private static void setBlocker(Thread t, Object arg) {
         // Even though volatile, hotspot doesn't need a write barrier here.
         unsafe.putObject(t, parkBlockerOffset, arg);
@@ -147,8 +152,11 @@ public class LockSupport {
      * @param thread the thread to unpark, or {@code null}, in which case
      *        this operation has no effect
      */
+    // 唤醒处于阻塞状态下的thread线程
     public static void unpark(Thread thread) {
+        // 当线程不为null时调用
         if (thread != null)
+            // 通过UNSAFE的unpark唤醒被阻塞的线程
             unsafe.unpark(thread);
     }
 
@@ -180,9 +188,12 @@ public class LockSupport {
      *        thread parking
      * @since 1.6
      */
+    // 阻塞当前线程
     public static void park(Object blocker) {
         Thread t = Thread.currentThread();
+        // 设置线程t的parkBlocker属性，用于记录线程阻塞情况
         setBlocker(t, blocker);
+        // 通过UNSAFE的park方法阻塞线程
         unsafe.park(false, 0L);
         setBlocker(t, null);
     }
@@ -219,6 +230,7 @@ public class LockSupport {
      * @param nanos the maximum number of nanoseconds to wait
      * @since 1.6
      */
+    // 阻塞当前线程nanos纳秒时间，超出时间线程就会被唤醒返回
     public static void parkNanos(Object blocker, long nanos) {
         if (nanos > 0) {
             Thread t = Thread.currentThread();
@@ -261,6 +273,7 @@ public class LockSupport {
      *        to wait until
      * @since 1.6
      */
+    // 阻塞当前线程，超过deadline日期线程就会被唤醒返回
     public static void parkUntil(Object blocker, long deadline) {
         Thread t = Thread.currentThread();
         setBlocker(t, blocker);
@@ -280,6 +293,7 @@ public class LockSupport {
      * @throws NullPointerException if argument is null
      * @since 1.6
      */
+    // 获取线程t的parkBlocker属性
     public static Object getBlocker(Thread t) {
         if (t == null)
             throw new NullPointerException();
@@ -311,6 +325,7 @@ public class LockSupport {
      * the thread to park in the first place. Callers may also determine,
      * for example, the interrupt status of the thread upon return.
      */
+    // 阻塞当前线程，不设置parkBlocker属性
     public static void park() {
         unsafe.park(false, 0L);
     }
