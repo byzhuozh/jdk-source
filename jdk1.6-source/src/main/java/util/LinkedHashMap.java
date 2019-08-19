@@ -136,6 +136,9 @@ public class LinkedHashMap<K,V>
 
     /**
      * The head of the doubly linked list.
+     *
+     * 双向环状链表头结点
+     *
      */
     private transient Entry<K,V> header;
 
@@ -316,11 +319,11 @@ public class LinkedHashMap<K,V>
         /**
          * Inserts this entry before the specified existing entry in the list.
          *
-         * 把当前的节点添加到链表中
+         * 把当前的节点添加到链表中, 插在节点的头部的位置
          */
         private void addBefore(Entry<K,V> existingEntry) {
             after  = existingEntry;
-            before = existingEntry.before;
+            before = existingEntry.before; // 如果existingEntry 是头部节点，则 existingEntry.before 实际是尾巴节点， linkedHashMap 是双向环状链表
             before.after = this;
             after.before = this;
         }
