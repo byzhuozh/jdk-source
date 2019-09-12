@@ -701,6 +701,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /**
      * Returns a power of two table size for the given desired capacity.
      * See Hackers Delight, sec 3.2
+     *
+     * 将一个数转换成 2的幂次方数， 指定大小为18时，为了满足2的幂次方特性，实际上concurrentHashMapd的大小为2的5次方（32）
      */
     private static final int tableSizeFor(int c) {
         int n = c - 1;
@@ -862,11 +864,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * 如果在实例化对象的时候指定了容量，则初始化sizeCtl
      */
     public ConcurrentHashMap(int initialCapacity) {
+        //1. 小于0直接抛异常
         if (initialCapacity < 0)
             throw new IllegalArgumentException();
+
+        //2. 判断是否超过了允许的最大值，超过了话则取最大值，否则再对该值进一步处理
         int cap = ((initialCapacity >= (MAXIMUM_CAPACITY >>> 1)) ?
                    MAXIMUM_CAPACITY :
                    tableSizeFor(initialCapacity + (initialCapacity >>> 1) + 1));
+        //3. 赋值给sizeCtl
         this.sizeCtl = cap;
     }
 
@@ -1043,8 +1049,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /** Implementation for put and putIfAbsent */
     /*
      * 当添加一对键值对的时候，首先会去判断保存这些键值对的数组是不是初始化了，
-     * 如果没有的话就初始化数组
-     *  然后通过计算hash值来确定放在数组的哪个位置
+     * 如果没有的话就初始化数组, 然后通过计算hash值来确定放在数组的哪个位置
      * 如果这个位置为空则直接添加，如果不为空的话，则取出这个节点来
      * 如果取出来的节点的hash值是MOVED(-1)的话，则表示当前正在对这个数组进行扩容，复制到新的数组，则当前线程也去帮助复制
      * 最后一种情况就是，如果这个节点，不为空，也不在扩容，则通过synchronized来加锁，进行添加操作
@@ -1129,7 +1134,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     }
                 }
                 if (binCount != 0) {
-                    if (binCount >= TREEIFY_THRESHOLD)   //当在同一个节点的数目达到8个的时候，则扩张数组或将给节点的数据转为tree
+                    //当在同一个节点的数目达到8个的时候，则扩张数组或将给节点的数据转为tree
+                    if (binCount >= TREEIFY_THRESHOLD)
                         treeifyBin(tab, i);
                     if (oldVal != null)
                         return oldVal;
@@ -2298,18 +2304,22 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      */
     private final Node<K,V>[] initTable() {
         Node<K,V>[] tab; int sc;
-        while ((tab = table) == null || tab.length == 0) {  //第一次put的时候，table还没被初始化，进入while
-            if ((sc = sizeCtl) < 0)     //sizeCtl初始值为0，当小于0的时候表示在别的线程在初始化表或扩展表
+        while ((tab = table) == null || tab.length == 0) {  // 第一次put的时候，table还没被初始化，进入while
+            if ((sc = sizeCtl) < 0)     // sizeCtl初始值为0， 当小于0的时候表示在别的线程在初始化表或扩展表
+                // 保证只有一个线程正在进行初始化操作
                 Thread.yield(); // lost initialization race; just spin
 
-            //SIZECTL：表示当前对象的内存偏移量，sc表示期望值，-1表示要替换的值，设定为-1表示要初始化表了
+            //SIZECTL：表示当前对象的内存偏移量，sc表示期望值，-1表示要替换的值，设定为 -1 表示要初始化表了
             else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
                 try {
                     if ((tab = table) == null || tab.length == 0) {
-                        int n = (sc > 0) ? sc : DEFAULT_CAPACITY;   //指定了大小的时候就创建指定大小的Node数组，否则创建指定大小(16)的Node数组
+                        // 指定了大小的时候就创建指定大小的Node数组，否则创建指定大小(16)的Node数组
+                        int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
                         @SuppressWarnings("unchecked")
+                        // 初始化数组
                         Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
                         table = tab = nt;
+                        // 计算数组中可用的大小：实际大小n*0.75（加载因子）
                         sc = n - (n >>> 2);
                     }
                 } finally {
